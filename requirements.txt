@@ -1,5 +1,6 @@
-google-generativeai
+google-genai
 Pillow
 Flask
 platformdirs
 python-dotenv
+watchdog

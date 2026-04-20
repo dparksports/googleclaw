@@ -136,22 +136,26 @@
                 
                 document.getElementById('loading').remove();
                 
-                const geminiMsg = document.createElement('div');
-                geminiMsg.className = 'flex justify-start';
-                
-                if (response.ok) {
-                    geminiMsg.innerHTML = `<div class="bg-white text-gray-800 p-4 rounded-2xl rounded-tl-none max-w-[90%] shadow-md border border-gray-100 prose">
-                        <div class="font-bold text-xs text-blue-600 mb-1 uppercase tracking-wider">Gemini</div>
-                        ${marked.parse(data.response)}
-                    </div>`;
+                if (data.type === 'plan') {
+                    renderPlan(data);
                 } else {
-                    geminiMsg.innerHTML = `<div class="bg-red-50 text-red-700 p-3 rounded-2xl rounded-tl-none max-w-[80%] shadow-sm border border-red-100">
-                        <b>Error:</b> ${data.response}
-                    </div>`;
+                    const geminiMsg = document.createElement('div');
+                    geminiMsg.className = 'flex justify-start';
+                    
+                    if (response.ok) {
+                        geminiMsg.innerHTML = `<div class="bg-white text-gray-800 p-4 rounded-2xl rounded-tl-none max-w-[90%] shadow-md border border-gray-100 prose">
+                            <div class="font-bold text-xs text-blue-600 mb-1 uppercase tracking-wider">Gemini</div>
+                            ${marked.parse(data.response)}
+                        </div>`;
+                    } else {
+                        geminiMsg.innerHTML = `<div class="bg-red-50 text-red-700 p-3 rounded-2xl rounded-tl-none max-w-[80%] shadow-sm border border-red-100">
+                            <b>Error:</b> ${data.response}
+                        </div>`;
+                    }
+                    chat.appendChild(geminiMsg);
                 }
-                chat.appendChild(geminiMsg);
             } catch (err) {
-                document.getElementById('loading').remove();
+                if(document.getElementById('loading')) document.getElementById('loading').remove();
                 chat.innerHTML += `<div class="flex justify-start"><div class="bg-red-50 text-red-700 p-3 rounded-2xl">Connection error.</div></div>`;
             }
             
@@ -161,6 +165,69 @@
             chat.scrollTop = chat.scrollHeight;
             sendBtn.disabled = false;
             promptInput.focus();
+        }
+
+        function renderPlan(plan) {
+            const chat = document.getElementById('chat');
+            const planMsg = document.createElement('div');
+            planMsg.className = 'flex justify-start';
+            
+            let actionsHtml = plan.actions.map((a, i) => {
+                const danger = a.is_dangerous ? '<span class="text-red-600 font-bold ml-2">[DANGEROUS]</span>' : '';
+                const type = a.type === 'command' ? '💻 Run Command' : '📄 Write File';
+                const content = a.type === 'command' ? `<code>${a.content}</code>` : `<code>${a.path}</code>`;
+                return `<div class="ml-4 mb-2 p-2 bg-gray-50 rounded border text-sm">
+                    <b>${i+1}. ${type}</b>: ${content}${danger}
+                </div>`;
+            }).join('');
+
+            const planId = 'plan-' + Date.now();
+            planMsg.innerHTML = `<div id="${planId}" class="bg-white text-gray-800 p-4 rounded-2xl rounded-tl-none max-w-[95%] shadow-lg border-2 border-blue-200">
+                <div class="font-bold text-xs text-blue-600 mb-1 uppercase tracking-wider">Proposed Orchestration Plan</div>
+                <p class="mb-4">${plan.explanation}</p>
+                <div class="mb-4 font-mono text-sm">${actionsHtml}</div>
+                <div class="flex gap-2">
+                    <button onclick='executePlan(${JSON.stringify(plan.actions)}, "${planId}")' 
+                        class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors font-medium">
+                        Confirm & Execute
+                    </button>
+                    <button onclick="document.getElementById('${planId}').parentElement.remove()" 
+                        class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors font-medium">
+                        Cancel
+                    </button>
+                </div>
+            </div>`;
+            
+            chat.appendChild(planMsg);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        async function executePlan(actions, planId) {
+            const planEl = document.getElementById(planId);
+            planEl.innerHTML = `<div class="flex items-center gap-3 p-4"><div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div> Executing plan...</div>`;
+            
+            try {
+                const res = await fetch('/execute', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({actions})
+                });
+                const data = await res.json();
+                
+                let resultHtml = data.results.map(r => {
+                    const color = r.success ? 'text-green-600' : 'text-red-600';
+                    const icon = r.success ? '✅' : '❌';
+                    return `<div class="mb-1 text-sm">${icon} <span class="font-medium">${r.action}</span>: <span class="${color}">${r.success ? 'Success' : 'Failed'}</span></div>`;
+                }).join('');
+
+                planEl.innerHTML = `<div class="p-2">
+                    <div class="font-bold text-xs text-green-600 mb-2 uppercase">Execution Results</div>
+                    ${resultHtml}
+                    <button onclick="this.parentElement.parentElement.parentElement.remove()" class="mt-3 text-xs text-blue-600 hover:underline">Clear</button>
+                </div>`;
+            } catch (err) {
+                planEl.innerHTML = `<div class="p-4 text-red-600">Execution failed: Connection error.</div>`;
+            }
         }
 
         init();

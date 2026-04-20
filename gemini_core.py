@@ -2,12 +2,14 @@ import os
 import json
 import pathlib
 import sys
+import platform
+import subprocess
 import tkinter as tk
 import webbrowser
 from threading import Timer
 from tkinter import filedialog
 from platformdirs import user_config_dir
-import google.generativeai as genai
+from google import genai
 from PIL import Image
 from flask import Flask, render_template, request, jsonify
 
@@ -17,8 +19,8 @@ APP_NAME = "gemini-cli"
 CONFIG_DIR = pathlib.Path(user_config_dir(APP_NAME))
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
-# Cached model instance
-_model = None
+# Cached client instance
+_client = None
 
 def get_config():
     if not CONFIG_FILE.exists():
@@ -30,35 +32,28 @@ def set_config(key, value):
     config = get_config()
     config[key] = value
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    # Persist the API key provided by the user
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=4)
 
-# Fallback to a stable default model
 from dotenv import load_dotenv
-
-# Load environment variables from .env if it exists
 load_dotenv()
 
-def get_model():
-    global _model
-    if _model: return _model
+def get_client():
+    global _client
+    if _client: return _client
     
     config = get_config()
-    # Priority: Environment Var (which includes .env) > Saved Config
     api_key = os.environ.get("GEMINI_API_KEY") or config.get("api_key")
         
     if not api_key: 
         print("API Key not found in environment or config.")
         return None
     
-    genai.configure(api_key=api_key)
     try:
-        model_name = config.get("model", "gemini-1.5-flash")
-        _model = genai.GenerativeModel(model_name)
-        return _model
+        _client = genai.Client(api_key=api_key)
+        return _client
     except Exception as e:
-        print(f"Error initializing model {model_name}: {e}")
+        print(f"Error initializing client: {e}")
         return None
 
 # Web Routes
@@ -67,34 +62,114 @@ def index(): return render_template('index.html')
 
 @app.route('/models', methods=['GET'])
 def get_models():
-    model = get_model()
-    if not model: return jsonify([])
-    # Note: get_model already configured the client
-    models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    client = get_client()
+    if not client: return jsonify([])
+    models = [m.name for m in client.models.list() if 'generateContent' in m.supported_generation_methods]
     return jsonify(models)
 
 @app.route('/set-model', methods=['POST'])
 def set_model_route():
     model_name = request.json.get('model')
     set_config("model", model_name)
-    global _model
-    _model = None # Force re-init on next chat
     return jsonify({"status": "success"})
 
 @app.route('/chat', methods=['POST'])
 def chat_route():
     prompt = request.form.get('prompt', '')
     image = request.files.get('image')
-    model = get_model()
-    if not model: return jsonify({"response": "Error: Not configured."}), 400
+    client = get_client()
+    if not client: return jsonify({"response": "Error: Not configured."}), 400
+    
+    config = get_config()
+    model_name = config.get("model", "gemini-1.5-flash")
+    
+    system_instruction = f"""
+    You are a Seamless OS Orchestrator. 
+    Current OS: {platform.system()}
+    Current Directory: {os.getcwd()}
+    
+    CRITICAL RULES:
+    1. BE A DOER: If a user asks "how to" do something or "find" something on their OS, ALWAYS respond with a JSON PLAN. Never just explain.
+    2. PLAN FORMAT: Respond ONLY with a JSON object if the wish involves an OS task:
+    {{
+        "type": "plan",
+        "explanation": "Briefly describe what this plan will accomplish",
+        "actions": [
+            {{ "type": "command", "content": "shell command", "is_dangerous": true/false }},
+            {{ "type": "write_file", "path": "filename", "content": "file content" }}
+        ]
+    }}
+    3. CHAT MODE: If (and only if) the user is just saying hello, asking a general knowledge question, or chatting about non-OS topics, respond with a simple JSON:
+    {{
+        "response": "Your text response here"
+    }}
+    4. SCRIPTING: For complex tasks (like finding duplicates), WRITE A SCRIPT (Python/PowerShell/Bash) and then add a COMMAND to run it.
+    5. WINDOWS: Use PowerShell for all Windows commands.
+    """
     
     contents = [prompt]
     if image:
         img = Image.open(image.stream)
         contents = [prompt, img]
     
-    response = model.generate_content(contents)
-    return jsonify({"response": response.text})
+    try:
+        response = client.models.generate_content(
+            model=model_name, 
+            contents=contents,
+            config={'system_instruction': system_instruction}
+        )
+        text = response.text.strip()
+        
+        # Try to parse as JSON
+        try:
+            # Strip markdown if needed
+            json_text = text
+            if "```json" in json_text:
+                json_text = json_text.split("```json")[1].split("```")[0].strip()
+            elif json_text.startswith("```"):
+                json_text = json_text.split("```")[1].strip()
+            
+            data = json.loads(json_text)
+            if data.get("type") == "plan":
+                return jsonify(data)
+            if data.get("response"):
+                return jsonify({"response": data["response"]})
+        except:
+            pass # Fallback to raw text if JSON parsing fails
+            
+        return jsonify({"response": response.text})
+    except Exception as e:
+        return jsonify({"response": str(e)}), 500
+
+@app.route('/execute', methods=['POST'])
+def execute_route():
+    actions = request.json.get('actions', [])
+    results = []
+    
+    for action in actions:
+        if action['type'] == 'command':
+            cmd = action['content']
+            try:
+                res = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                results.append({
+                    "action": f"Run `{cmd}`",
+                    "stdout": res.stdout,
+                    "stderr": res.stderr,
+                    "success": res.returncode == 0
+                })
+            except Exception as e:
+                results.append({"action": f"Run `{cmd}`", "error": str(e), "success": False})
+        
+        elif action['type'] == 'write_file':
+            path = action['path']
+            try:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(action['content'])
+                results.append({"action": f"Write `{path}`", "success": True})
+            except Exception as e:
+                results.append({"action": f"Write `{path}`", "error": str(e), "success": False})
+                
+    return jsonify({"results": results})
 
 def run_web():
     def open_browser(): webbrowser.open("http://127.0.0.1:5000")
@@ -113,13 +188,29 @@ def select_file():
     return file_path
 
 def interactive_chat():
-    model = get_model()
-    if not model: 
+    client = get_client()
+    if not client: 
         print("Not configured. Run the app once to set up.")
         return
-    chat = model.start_chat()
-    print(f"--- Chatting (Type 'exit' to quit) ---")
+    config = get_config()
+    model_name = config.get("model", "gemini-1.5-flash")
+    
+    print(f"--- Chatting with {model_name} (Type 'exit' to quit) ---")
     while True:
         user_input = input("You: ")
         if user_input.lower() == 'exit': break
-        # ... (rest of logic unchanged)
+        
+        response = client.models.generate_content(model=model_name, contents=user_input)
+        print(f"Gemini: {response.text}")
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        arg = sys.argv[1].lower()
+        if arg == "web":
+            run_web()
+        elif arg == "chat":
+            interactive_chat()
+        else:
+            print(f"Unknown argument: {arg}. Use 'web' or 'chat'.")
+    else:
+        run_web()

@@ -1,61 +1,62 @@
-# Gemini AI Assistant
+# 🌟 Gemini Seamless Assistant
 
-A cross-platform assistant that lets you chat with Gemini in your browser or terminal. Supported on **macOS**, **Windows**, and **Ubuntu (Linux)**.
-
-## 🚀 Easy Setup
-
-### Windows
-1.  Double-click **`setup.bat`**. This will set up your private environment and install everything automatically.
-2.  Once finished, double-click **`start_assistant.bat`** to open the chat in your browser.
-
-### macOS & Ubuntu
-1.  Open your terminal in this folder.
-2.  Run the setup script:
-    ```bash
-    bash setup.sh
-    ```
-3.  Start the assistant:
-    ```bash
-    ./start_assistant.sh
-    ```
+The easiest way to use AI on your computer. No complex commands, no technical jargon—just tell the AI what you want to do, and it helps you get it done.
 
 ---
 
-## 🔑 API Key Configuration
+## 🚀 How to Get Started
 
-The first time you start the app, it will look for your API key.
-- **Recommended:** Create a file named `.env` in this folder and paste your key inside like this:
-  ```text
-  GEMINI_API_KEY=your_key_here
-  ```
-- Alternatively, you can get a free key at [aistudio.google.com](https://aistudio.google.com/).
+### 1. Set Up (Only once)
+*   **Windows:** Double-click `setup.bat`.
+*   **Mac / Linux:** Run `bash setup.sh` in your terminal.
 
----
+### 2. Add your "Brain" (API Key)
+The assistant needs a key from Google to work.
+1.  Get a free key at [aistudio.google.com](https://aistudio.google.com/).
+2.  Create a simple text file named `.env` in this folder.
+3.  Paste this inside: `GEMINI_API_KEY=your_key_here`
 
-## 📖 How to Use
-
-### Web Browser View (Recommended)
-This is the easiest way to use the assistant.
-- **Run:** `start_assistant.bat` (Windows) or `./start_assistant.sh` (macOS/Ubuntu).
-- Your browser will open a clean chat interface.
-- **Features:** 
-    - Type and press **Enter** to send.
-    - Click 📷 to attach images.
-    - Switch AI models using the dropdown at the top right.
-
-### Command Line View
-For power users who prefer the terminal.
-- **Run:** `.\.venv\Scripts\python.exe gemini_core.py chat` (Windows) or `./.venv/bin/python gemini_core.py chat`.
-- **Image Attachments:** Type `attach` and press Enter to select an image file visually.
+### 3. Start the Assistant
+*   **Windows:** Double-click `start_smart_assistant.bat`.
+*   **Mac / Linux:** Run `./start_smart_assistant.sh`.
 
 ---
 
-## 🛠️ Troubleshooting
-- **Python not found:** Ensure you have Python 3.9+ installed. Download it from [python.org](https://www.python.org/).
-- **Port 5000 busy:** If the web view won't open, ensure no other web apps are running on your computer.
+## 💡 How to Use (For Everyone)
+
+### Option A: The "Wish" Box (Terminal)
+When you start the assistant, you'll see a `Wish >` prompt. Just type what you want in plain English:
+
+*   **Organize files:** *"Find all my photos and move them into a folder named 'MyPictures'."*
+*   **Create things:** *"Write a simple Python script that reminds me to drink water every hour."*
+*   **System Help:** *"How much space is left on my hard drive?"*
+*   **Batch Tasks:** *"Find every text file in this folder and change the word 'Apple' to 'Orange'."*
+
+The assistant will explain its plan. If it needs to run a command, it will ask for your permission first!
+
+### Option B: "Vibe Coding" (Inside your Editor)
+If you are writing code in an editor (like VS Code or Notepad++), you don't even need to switch back to the assistant.
+
+1.  Keep the assistant running in the background.
+2.  In your code file, just write a comment like this:
+    `# @gemini create a function that calculates the area of a circle`
+3.  **Save the file.**
+4.  Magic! The assistant will see your comment and automatically replace it with the actual code.
+
+---
+
+## 🛠️ Frequently Asked Questions
+
+**"Is it safe?"**
+Yes. The assistant will always describe what it's about to do. If a task could delete or change important files, it will explicitly ask: *"Run this command? (y/n)"*.
+
+**"Do I need to know how to code?"**
+Not at all. You can use it just to manage your files, ask questions about your computer, or learn how things work.
+
+**"What files can I use 'Vibe Coding' in?"**
+It works in almost any code file: Python (.py), JavaScript (.js), HTML, CSS, C++, and more.
 
 ---
 
 ## 📄 License
-
-This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+This project is open-source under the Apache License 2.0.
