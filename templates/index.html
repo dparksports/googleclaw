@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini AI Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .prose pre { background: #f4f4f4; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
+        .prose code { background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 0.25rem; }
+    </style>
+</head>
+<body class="bg-gray-100 h-screen flex flex-col">
+    <header class="bg-blue-600 text-white p-4 flex justify-between items-center shadow-md">
+        <h1 class="font-bold text-xl">Gemini AI Assistant</h1>
+        <div class="flex items-center gap-2">
+            <span class="text-sm opacity-80">Model:</span>
+            <select id="modelSelect" onchange="setModel()" class="text-black p-1 rounded text-sm"></select>
+        </div>
+    </header>
+    
+    <div id="chat" class="flex-1 overflow-y-auto p-4 space-y-4">
+        <div class="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-100">
+            <p class="text-blue-800">Welcome! You can type your messages below. Press <b>Enter</b> to send, or use the 📷 icon to attach an image.</p>
+        </div>
+    </div>
+
+    <div class="bg-white p-4 border-t shadow-lg">
+        <div class="max-w-4xl mx-auto flex gap-2 items-center">
+            <div class="relative flex-1">
+                <input type="text" id="prompt" 
+                    class="w-full border rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" 
+                    placeholder="Ask anything..."
+                    onkeypress="if(event.key === 'Enter') send()">
+                <div id="fileIndicator" class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-blue-600 font-bold hidden">
+                    Image Attached
+                </div>
+            </div>
+            
+            <input type="file" id="image" class="hidden" onchange="updateFileIndicator()">
+            <label for="image" class="cursor-pointer bg-gray-100 p-2 rounded-full hover:bg-gray-200 transition-colors" title="Attach Image">
+                <span class="text-xl">📷</span>
+            </label>
+            
+            <button onclick="send()" id="sendBtn" 
+                class="bg-blue-600 text-white px-6 py-2 rounded-full hover:bg-blue-700 transition-colors font-medium disabled:bg-blue-300">
+                Send
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Set marked options for security and line breaks
+        marked.setOptions({
+            breaks: true,
+            gfm: true
+        });
+
+        async function init() {
+            try {
+                const res = await fetch('/models');
+                const models = await res.json();
+                const select = document.getElementById('modelSelect');
+                models.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m; opt.textContent = m;
+                    select.appendChild(opt);
+                });
+            } catch (err) {
+                console.error("Failed to load models", err);
+            }
+        }
+
+        async function setModel() {
+            const model = document.getElementById('modelSelect').value;
+            await fetch('/set-model', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({model})
+            });
+        }
+
+        function updateFileIndicator() {
+            const imgInput = document.getElementById('image');
+            const indicator = document.getElementById('fileIndicator');
+            if (imgInput.files.length > 0) {
+                indicator.classList.remove('hidden');
+            } else {
+                indicator.classList.add('hidden');
+            }
+        }
+
+        async function send() {
+            const promptInput = document.getElementById('prompt');
+            const prompt = promptInput.value.trim();
+            const imgInput = document.getElementById('image');
+            const sendBtn = document.getElementById('sendBtn');
+            
+            if (!prompt && imgInput.files.length === 0) return;
+
+            const chat = document.getElementById('chat');
+            
+            // Add User Message
+            const userMsg = document.createElement('div');
+            userMsg.className = 'flex justify-end';
+            userMsg.innerHTML = `<div class="bg-blue-100 text-blue-900 p-3 rounded-2xl rounded-tr-none max-w-[80%] shadow-sm">
+                ${prompt || '<i class="text-sm opacity-70">Sent an image</i>'}
+            </div>`;
+            chat.appendChild(userMsg);
+            
+            // Reset Input
+            promptInput.value = '';
+            sendBtn.disabled = true;
+            
+            // Add Loading State
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading';
+            loadingMsg.className = 'flex justify-start';
+            loadingMsg.innerHTML = `<div class="bg-gray-200 text-gray-600 p-3 rounded-2xl rounded-tl-none animate-pulse">
+                Gemini is thinking...
+            </div>`;
+            chat.appendChild(loadingMsg);
+            chat.scrollTop = chat.scrollHeight;
+
+            const formData = new FormData();
+            formData.append('prompt', prompt);
+            if (imgInput.files.length > 0) {
+                formData.append('image', imgInput.files[0]);
+            }
+
+            try {
+                const response = await fetch('/chat', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                document.getElementById('loading').remove();
+                
+                const geminiMsg = document.createElement('div');
+                geminiMsg.className = 'flex justify-start';
+                
+                if (response.ok) {
+                    geminiMsg.innerHTML = `<div class="bg-white text-gray-800 p-4 rounded-2xl rounded-tl-none max-w-[90%] shadow-md border border-gray-100 prose">
+                        <div class="font-bold text-xs text-blue-600 mb-1 uppercase tracking-wider">Gemini</div>
+                        ${marked.parse(data.response)}
+                    </div>`;
+                } else {
+                    geminiMsg.innerHTML = `<div class="bg-red-50 text-red-700 p-3 rounded-2xl rounded-tl-none max-w-[80%] shadow-sm border border-red-100">
+                        <b>Error:</b> ${data.response}
+                    </div>`;
+                }
+                chat.appendChild(geminiMsg);
+            } catch (err) {
+                document.getElementById('loading').remove();
+                chat.innerHTML += `<div class="flex justify-start"><div class="bg-red-50 text-red-700 p-3 rounded-2xl">Connection error.</div></div>`;
+            }
+            
+            // Cleanup
+            imgInput.value = '';
+            updateFileIndicator();
+            chat.scrollTop = chat.scrollHeight;
+            sendBtn.disabled = false;
+            promptInput.focus();
+        }
+
+        init();
+    </script>
+</body>
+</html>
