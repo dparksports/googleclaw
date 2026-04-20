@@ -151,3 +151,4 @@ cython_debug/
 
 # Project specific
 config.json
+processed_chats/
