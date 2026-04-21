@@ -41,12 +41,13 @@ class VibeHandler(FileSystemEventHandler):
 
             vibe_line_index = -1
             instruction = ""
+            marker = "@gemini" + ' "'
             for i, line in enumerate(lines):
-                if '@gemini "' in line:
+                if marker in line:
                     vibe_line_index = i
                     # Capture text between the double quotes after @gemini
                     try:
-                        instruction = line.split('@gemini "')[1].split('"')[0]
+                        instruction = line.split(marker)[1].split('"')[0]
                     except IndexError:
                         instruction = ""
                     break
@@ -94,7 +95,7 @@ class SeamlessAssistant:
                      if 'generateContent' in m.supported_actions]
             
             # Prioritize a default if available, else let user choose
-            default_model = 'gemini-3-flash-preview'
+            default_model = 'gemini-3.1-pro-preview'
             if default_model not in models:
                 default_model = models[0] if models else None
 
@@ -214,7 +215,8 @@ class SeamlessAssistant:
     def run(self):
         print(f"\n=== Gemini Seamless Orchestrator ({self.system_info['os']}) ===")
         print("Watching directory for changes... (Add @gemini \"instruction\" to any file to trigger)")
-        
+        print("Commands: /model (change model), exit (quit)")
+
         observer = Observer()
         observer.schedule(VibeHandler(self), ".", recursive=True)
         observer.start()
@@ -223,8 +225,14 @@ class SeamlessAssistant:
             while True:
                 wish = input(f"\nWish > ").strip()
                 if not wish: continue
+
+                # Command Interceptor
+                if wish.lower() in ['/model', '/config', '/setup']:
+                    self.model_name = self.select_model()
+                    continue
+
                 if wish.lower() in ['exit', 'quit']: break
-                
+
                 plan = self.get_assistant_plan(wish)
                 if plan.get('actions'):
                     self.execute_plan(plan)
@@ -236,6 +244,7 @@ class SeamlessAssistant:
             observer.stop()
             observer.join()
             print("\nShutting down.")
+
 
 if __name__ == "__main__":
     assistant = SeamlessAssistant()

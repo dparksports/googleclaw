@@ -24,7 +24,7 @@ _client = None
 
 def get_config():
     if not CONFIG_FILE.exists():
-        return {"model": "gemini-2.0-flash", "api_key": ""}
+        return {"model": "gemini-3.1-pro-preview", "api_key": ""}
     with open(CONFIG_FILE, "r") as f:
         return json.load(f)
 
@@ -81,7 +81,7 @@ def chat_route():
     if not client: return jsonify({"response": "Error: Not configured."}), 400
     
     config = get_config()
-    model_name = config.get("model", "gemini-2.0-flash")
+    model_name = config.get("model", "gemini-3.1-pro-preview")
     
     system_instruction = f"""
     You are a Seamless OS Orchestrator. 
@@ -194,7 +194,7 @@ def interactive_chat():
         print("Not configured. Run the app once to set up.")
         return
     config = get_config()
-    model_name = config.get("model", "gemini-2.0-flash")
+    model_name = config.get("model", "gemini-3.1-pro-preview")
     
     print(f"--- Chatting with {model_name} (Type 'exit' to quit) ---")
     while True:
