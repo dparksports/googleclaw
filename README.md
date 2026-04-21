@@ -1,62 +1,55 @@
-# 🌟 Gemini Seamless Assistant
+# GoogleClaw: Seamless OS Orchestration & AI Vision
 
-The easiest way to use AI on your computer. No complex commands, no technical jargon—just tell the AI what you want to do, and it helps you get it done.
+GoogleClaw is an agent-first workspace designed for autonomous OS orchestration and intelligent computer vision. It leverages the Gemini 3.1 model family to plan, execute, and verify complex technical missions across Windows, Linux, and macOS.
 
----
+## 🚀 Core Features
 
-## 🚀 How to Get Started
+### 1. Smart CLI Orchestrator (`gemini_assistant.py`)
+A reactive terminal assistant that understands your "Wishes."
+*   **Hybrid Modes**: Toggle between `/chat` (analysis) and `/plan` (action) modes.
+*   **Safe Execution**: Previews every script and command with a confirmation prompt.
+*   **Vibe Coding**: Automatically updates code based on `@gemini` tags in your source files.
+*   **Persistence**: Remembers your preferred model (e.g., `gemini-3.1-flash-lite-preview`).
 
-### 1. Set Up (Only once)
-*   **Windows:** Double-click `setup.bat`.
-*   **Mac / Linux:** Run `bash setup.sh` in your terminal.
+### 2. AI Vision Suite
+High-performance computer vision scripts optimized for NVIDIA RTX hardware.
+*   **`detect_humans_filehistory.py`**: A specialized high-speed scanner for large video archives.
+    *   **Optimization**: Uses frame-striding and FP16 half-precision for 10x faster processing.
+    *   **Sorting**: Processes the most recent footage first.
+    *   **Reporting**: Generates comprehensive CSV logs of human detection events.
 
-### 2. Add your "Brain" (API Key)
-The assistant needs a key from Google to work.
-1.  Get a free key at [aistudio.google.com](https://aistudio.google.com/).
-2.  Create a simple text file named `.env` in this folder.
-3.  Paste this inside: `GEMINI_API_KEY=your_key_here`
+### 3. Web UI (`gemini_core.py`)
+A browser-based interface for those who prefer visual orchestration and plan management.
 
-### 3. Start the Assistant
-*   **Windows:** Double-click `start_smart_assistant.bat`.
-*   **Mac / Linux:** Run `./start_smart_assistant.sh`.
+## 🛠 Setup & Installation
 
----
+1.  **Environment**: Ensure you have Python 3.13+ and a virtual environment.
+2.  **GPU Support (Optional but Recommended)**:
+    ```powershell
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+    ```
+3.  **Dependencies**:
+    ```powershell
+    pip install ultralytics opencv-python pandas flask python-dotenv google-genai
+    ```
+4.  **API Key**: Add your `GEMINI_API_KEY` to a `.env` file in the root directory.
 
-## 💡 How to Use (For Everyone)
+## 📖 Usage
 
-### Option A: The "Wish" Box (Terminal)
-When you start the assistant, you'll see a `Wish >` prompt. Just type what you want in plain English:
+### Running the Assistant
+```powershell
+python gemini_assistant.py
+```
+**Commands**:
+*   `/model [number]`: Quickly switch Gemini models.
+*   `/chat`: Switch to inquiry-only mode.
+*   `/plan`: Switch to action-oriented mode.
 
-*   **Organize files:** *"Find all my photos and move them into a folder named 'MyPictures'."*
-*   **Create things:** *"Write a simple Python script that reminds me to drink water every hour."*
-*   **System Help:** *"How much space is left on my hard drive?"*
-*   **Batch Tasks:** *"Find every text file in this folder and change the word 'Apple' to 'Orange'."*
-
-The assistant will explain its plan. If it needs to run a command, it will ask for your permission first!
-
-### Option B: "Vibe Coding" (Inside your Editor)
-If you are writing code in an editor (like VS Code or Notepad++), you don't even need to switch back to the assistant.
-
-1.  Keep the assistant running in the background.
-2.  In your code file, just write a comment like this:
-    `# @gemini create a function that calculates the area of a circle`
-3.  **Save the file.**
-4.  Magic! The assistant will see your comment and automatically replace it with the actual code.
-
----
-
-## 🛠️ Frequently Asked Questions
-
-**"Is it safe?"**
-Yes. The assistant will always describe what it's about to do. If a task could delete or change important files, it will explicitly ask: *"Run this command? (y/n)"*.
-
-**"Do I need to know how to code?"**
-Not at all. You can use it just to manage your files, ask questions about your computer, or learn how things work.
-
-**"What files can I use 'Vibe Coding' in?"**
-It works in almost any code file: Python (.py), JavaScript (.js), HTML, CSS, C++, and more.
+### Running Human Detection
+```powershell
+python detect_humans_filehistory.py
+```
+*The script targets `~/Downloads/reolink` by default and uses your GPU automatically if available.*
 
 ---
-
-## 📄 License
-This project is open-source under the Apache License 2.0.
+*Created with 🤖 Antigravity IDE*
