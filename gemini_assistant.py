@@ -72,6 +72,9 @@ class VibeHandler(FileSystemEventHandler):
 class SeamlessAssistant:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
+        self.config_path = Path("assistant_config.json")
+        self.active_mode = "auto" # Modes: auto, chat, plan
+        
         if not self.api_key:
             print("\033[91m[Error]\033[0m GEMINI_API_KEY not found in environment.")
             sys.exit(1)
@@ -82,65 +85,97 @@ class SeamlessAssistant:
             print(f"\033[91m[Error]\033[0m Failed to initialize Gemini client: {e}")
             sys.exit(1)
             
-        self.model_name = self.select_model()
+        self.model_name = self.load_config()
         self.system_info = {
             "os": platform.system(),
             "cwd": str(Path.cwd()),
             "files": [f.name for f in Path.cwd().glob('*') if f.is_file()][:30]
         }
 
-    def select_model(self):
+    def load_config(self):
+        default = 'gemini-3.1-flash-lite-preview'
+        if self.config_path.exists():
+            try:
+                with open(self.config_path, 'r') as f:
+                    config = json.load(f)
+                    return config.get("model", default)
+            except:
+                pass
+        return default
+
+    def save_config(self, model_name):
+        try:
+            with open(self.config_path, 'w') as f:
+                json.dump({"model": model_name}, f)
+        except Exception as e:
+            print(f"Failed to save config: {e}")
+
+    def select_model(self, choice=None):
         try:
             models = [m.name.replace('models/', '') for m in self.client.models.list() 
                      if 'generateContent' in m.supported_actions]
             
-            # Prioritize a default if available, else let user choose
-            default_model = 'gemini-3.1-pro-preview'
-            if default_model not in models:
-                default_model = models[0] if models else None
-
-            print("\nAvailable Models:")
-            for i, m in enumerate(models, 1):
-                print(f"  {i}. {m}")
-            
-            choice = input(f"\nSelect model [default {default_model}]: ").strip()
             if not choice:
-                return default_model
+                print("\nAvailable Models:")
+                for i, m in enumerate(models, 1):
+                    star = "*" if m == self.model_name else " "
+                    print(f"  {i}. {star} {m}")
+                
+                choice = input(f"\nSelect model [current: {self.model_name}]: ").strip()
+            
+            selected = self.model_name
+            if not choice:
+                return selected
             
             if choice.isdigit() and 1 <= int(choice) <= len(models):
-                return models[int(choice)-1]
+                selected = models[int(choice)-1]
             elif choice in models:
-                return choice
+                selected = choice
             else:
-                print(f"Invalid choice, using {default_model}")
-                return default_model
+                print(f"Invalid choice '{choice}', keeping {self.model_name}")
+                return self.model_name
+
+            self.save_config(selected)
+            print(f"\033[92m[Config]\033[0m Model switched to: {selected}")
+            return selected
+            
         except Exception as e:
-            print(f"Error listing models: {e}. Using gemini-2.0-flash.")
-            return 'gemini-2.0-flash'
+            print(f"Error listing models: {e}. Using {self.model_name}")
+            return self.model_name
 
     def get_assistant_plan(self, user_input):
+        mode_instruction = ""
+        if self.active_mode == "chat":
+            mode_instruction = "FORCE MODE: CHAT. Do not propose actions. Only explain/answer."
+        elif self.active_mode == "plan":
+            mode_instruction = "FORCE MODE: PLAN. Always provide actions, even for questions (e.g. read the file)."
+
         prompt = f"""
         You are a Seamless OS Orchestrator. 
         Context: OS={self.system_info['os']}, CWD={self.system_info['cwd']}
         Files in directory: {self.system_info['files']}
+        {mode_instruction}
 
         User Wish: "{user_input}"
-        Goal: Provide a complete, automated plan to fulfill this wish. 
+        
+        MODES:
+        1. CHAT: Use ONLY if you can answer the user's wish completely using only the provided context. Do NOT say "I will read" or "I will check"—if you need to do that, use PLAN mode.
+        2. PLAN: Use if you need to execute commands, write files, or READ existing files (using 'type' or 'cat') to fulfill the wish.
 
         CRITICAL RULES:
-        1. BE A DOER: Provide the actions to execute the solution immediately.
-        2. SCRIPTS: For logic, write a complete script (Python, Bash, or PowerShell).
-        3. PLATFORM SPECIFIC: Use PowerShell for Windows and Bash for Linux/Mac.
-        4. ROBUSTNESS: When installing dependencies, check if they exist first. Avoid hardcoded `--index-url` or specific CUDA versions unless absolutely necessary for hardware compatibility. Prefer standard `pip install`.
-        5. CLEANUP: Always include a final command to delete any temporary scripts created.
+        1. BE A DOER: In PLAN mode, provide the exact actions to fulfill the wish immediately.
+        2. NO EMPTY PROMISES: Never use CHAT mode to describe what you *would* do. If action is needed, provide a PLAN.
+        3. READ FILES: If the user asks how a script works and you don't have its content, your PLAN should include a command to display it (e.g., `type filename` on Windows).
+        4. SAFE PATHS: On Windows, use raw strings r"C:\\path".
+        5. CLEANUP: Always include a final command to delete temporary scripts, UNLESS the user explicitly asks to keep them.
 
         Respond ONLY with a JSON object:
         {{
-            "explanation": "Summary of approach",
+            "type": "chat" or "plan",
+            "explanation": "Your direct answer (for chat) or summary of actions (for plan)",
             "actions": [
                 {{ "type": "write_file", "path": "script.ext", "content": "CONTENT" }},
-                {{ "type": "command", "content": "shell command", "is_dangerous": false }},
-                {{ "type": "command", "content": "rm script.ext", "is_dangerous": false }}
+                {{ "type": "command", "content": "shell command", "is_dangerous": false }}
             ]
         }}
         """
@@ -148,9 +183,10 @@ class SeamlessAssistant:
             response = self.client.models.generate_content(model=self.model_name, contents=prompt)
             content = response.text.strip()
             if content.startswith("```json"): content = content[7:-3].strip()
-            return json.loads(content)
+            data = json.loads(content)
+            return data
         except Exception as e:
-            return {"explanation": f"Failed to generate plan: {e}", "actions": []}
+            return {"type": "chat", "explanation": f"Failed to generate response: {e}", "actions": []}
 
     def get_vibe_implementation(self, file_path, full_content, instruction):
         # Specific instructions to the model to ensure the @gemini tag is consumed/removed
@@ -176,6 +212,7 @@ class SeamlessAssistant:
 
     def execute_plan(self, plan):
         print(f"\n\033[95m[PLAN]\033[0m {plan['explanation']}")
+        captured_output = []
         
         for i, action in enumerate(plan['actions'], 1):
             if action['type'] == 'command':
@@ -184,21 +221,28 @@ class SeamlessAssistant:
                 print(f"  {i}. \033[94m[WRITE]\033[0m {action['path']}")
                 # Show preview of file content
                 lines = action['content'].splitlines()
-                preview = "\n".join([f"      | {l}" for l in lines[:5]])
-                if len(lines) > 5: preview += f"\n      | ... ({len(lines)-5} more lines)"
+                preview_lines = []
+                for line in lines[:5]:
+                    preview_lines.append(f"      | {line}")
+                
+                preview = "\n".join(preview_lines)
+                if len(lines) > 5:
+                    preview += f"\n      |\n      | ... ({len(lines)-5} more lines)"
                 print(f"\033[90m{preview}\033[0m")
 
         confirm = input(f"\nExecute these steps? (y/n): ").lower()
         if confirm != 'y':
             print("Aborted.")
-            return
+            return None
 
         for action in plan['actions']:
             try:
                 if action['type'] == 'command':
                     print(f"  [RUNNING] {action['content']}")
                     result = subprocess.run(action['content'], shell=True, capture_output=True, text=True)
-                    if result.stdout: print(f"\033[32m{result.stdout}\033[0m")
+                    if result.stdout:
+                        print(f"\033[32m{result.stdout}\033[0m")
+                        captured_output.append(result.stdout)
                     if result.returncode != 0:
                         print(f"\033[91m[Command Failed]\033[0m\n{result.stderr}")
                         break
@@ -211,11 +255,12 @@ class SeamlessAssistant:
                 break
         
         print("\033[92m✔ Task completed.\033[0m")
+        return "\n".join(captured_output)
 
     def run(self):
         print(f"\n=== Gemini Seamless Orchestrator ({self.system_info['os']}) ===")
         print("Watching directory for changes... (Add @gemini \"instruction\" to any file to trigger)")
-        print("Commands: /model (change model), exit (quit)")
+        print("Commands: /model [n], /chat (force inquiry), /plan (force action), /auto (smart), exit")
 
         observer = Observer()
         observer.schedule(VibeHandler(self), ".", recursive=True)
@@ -223,21 +268,50 @@ class SeamlessAssistant:
 
         try:
             while True:
-                wish = input(f"\nWish > ").strip()
+                mode_tag = f"[{self.active_mode.upper()}]" if self.active_mode != "auto" else ""
+                wish = input(f"\n({self.model_name}){mode_tag} Wish > ").strip()
                 if not wish: continue
 
                 # Command Interceptor
-                if wish.lower() in ['/model', '/config', '/setup']:
-                    self.model_name = self.select_model()
+                parts = wish.lower().split()
+                cmd = parts[0]
+                
+                if cmd in ['/model', '/config', '/setup']:
+                    arg = parts[1] if len(parts) > 1 else None
+                    self.model_name = self.select_model(arg)
+                    continue
+                
+                if cmd in ['/chat', '/q']:
+                    self.active_mode = "chat"
+                    print("\033[94m[Mode]\033[0m Switched to CHAT (Question) mode.")
+                    continue
+                
+                if cmd in ['/plan', '/p']:
+                    self.active_mode = "plan"
+                    print("\033[94m[Mode]\033[0m Switched to PLAN (Action) mode.")
+                    continue
+                
+                if cmd in ['/auto', '/a']:
+                    self.active_mode = "auto"
+                    print("\033[94m[Mode]\033[0m Switched to AUTO (Smart) mode.")
                     continue
 
                 if wish.lower() in ['exit', 'quit']: break
 
+                # Main Orchestration Loop
                 plan = self.get_assistant_plan(wish)
-                if plan.get('actions'):
-                    self.execute_plan(plan)
+                
+                if plan.get('type') == 'plan' and plan.get('actions'):
+                    output = self.execute_plan(plan)
+                    
+                    # SMART FOLLOW-UP: If we gathered info (like reading a file), synthesize the answer
+                    if output and self.active_mode != 'plan':
+                        print("\033[90m[*] Synthesizing answer based on output...\033[0m")
+                        synthesis_wish = f"I previously asked: '{wish}'. Use the following command output to provide the final explanation:\n\n{output}"
+                        final_reply = self.get_assistant_plan(synthesis_wish)
+                        print(f"\n\033[94m[Assistant]\033[0m {final_reply.get('explanation')}")
                 else:
-                    print(f"\nAssistant: {plan.get('explanation', 'I cannot fulfill that wish.')}")
+                    print(f"\n\033[94m[Assistant]\033[0m {plan.get('explanation', 'I cannot fulfill that wish.')}")
         except KeyboardInterrupt:
             pass
         finally:
