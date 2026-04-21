@@ -149,6 +149,18 @@ cython_debug/
 # VS Code
 .vscode/
 
-# Project specific
-config.json
+# Project specific data and reports
+*.csv
+*.txt
+!requirements.txt
+!README.md
+!all_mp4_scanned.txt
+!duplicate_mp4_files.txt
+!test.txt
 processed_chats/
+config.json
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

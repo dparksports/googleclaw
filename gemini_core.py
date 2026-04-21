@@ -24,7 +24,7 @@ _client = None
 
 def get_config():
     if not CONFIG_FILE.exists():
-        return {"model": "gemini-1.5-flash", "api_key": ""}
+        return {"model": "gemini-3-flash-preview", "api_key": ""}
     with open(CONFIG_FILE, "r") as f:
         return json.load(f)
 
@@ -81,7 +81,7 @@ def chat_route():
     if not client: return jsonify({"response": "Error: Not configured."}), 400
     
     config = get_config()
-    model_name = config.get("model", "gemini-1.5-flash")
+    model_name = config.get("model", "gemini-3-flash-preview")
     
     system_instruction = f"""
     You are a Seamless OS Orchestrator. 
@@ -104,7 +104,8 @@ def chat_route():
         "response": "Your text response here"
     }}
     4. SCRIPTING: For complex tasks (like finding duplicates), WRITE A SCRIPT (Python/PowerShell/Bash) and then add a COMMAND to run it.
-    5. WINDOWS: Use PowerShell for all Windows commands.
+    5. ROBUSTNESS: When installing dependencies, check if they exist first. Avoid hardcoded `--index-url` or specific CUDA versions unless absolutely necessary. Prefer standard `pip install`.
+    6. WINDOWS: Use PowerShell for all Windows commands.
     """
     
     contents = [prompt]
@@ -193,7 +194,7 @@ def interactive_chat():
         print("Not configured. Run the app once to set up.")
         return
     config = get_config()
-    model_name = config.get("model", "gemini-1.5-flash")
+    model_name = config.get("model", "gemini-3-flash-preview")
     
     print(f"--- Chatting with {model_name} (Type 'exit' to quit) ---")
     while True:

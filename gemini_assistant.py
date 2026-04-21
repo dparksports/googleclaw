@@ -4,7 +4,6 @@ import platform
 import subprocess
 import json
 import time
-import threading
 from google import genai
 from dotenv import load_dotenv
 from pathlib import Path
@@ -22,13 +21,14 @@ class VibeHandler(FileSystemEventHandler):
     def on_modified(self, event):
         if event.is_directory: return
         file_path = Path(event.src_path)
-        if file_path.suffix not in ['.py', '.js', '.ts', '.html', '.css', '.c', '.cpp', '.go', '.rs']:
+        # Added more extensions for versatility
+        if file_path.suffix.lower() not in ['.py', '.js', '.ts', '.html', '.css', '.c', '.cpp', '.go', '.rs', '.php', '.java', '.pyi']:
             return
         
-        # Debounce
+        # Debounce to prevent multiple triggers on a single save
         current_time = time.time()
         if str(file_path) in self.last_processed:
-            if current_time - self.last_processed[str(file_path)] < 2:
+            if current_time - self.last_processed[str(file_path)] < 1.5:
                 return
         
         self.last_processed[str(file_path)] = current_time
@@ -42,27 +42,37 @@ class VibeHandler(FileSystemEventHandler):
             vibe_line_index = -1
             instruction = ""
             for i, line in enumerate(lines):
-                if "@gemini" in line:
+                if '@gemini "' in line:
                     vibe_line_index = i
-                    instruction = line.split("@gemini")[1].strip()
+                    # Capture text between the double quotes after @gemini
+                    try:
+                        instruction = line.split('@gemini "')[1].split('"')[0]
+                    except IndexError:
+                        instruction = ""
                     break
             
-            if vibe_line_index == -1: return
+            if vibe_line_index == -1 or not instruction: return
             
-            # Implementation logic
+            print(f"\n\033[94m[Vibe Detected]\033[0m Processing instruction in {file_path.name}...")
+            
+            # Request the updated implementation
             new_content = self.assistant.get_vibe_implementation(file_path, "".join(lines), instruction)
+            
             if new_content:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(new_content)
-                print(f"\n\033[92m[Vibe Applied]\033[0m {file_path.name}: {instruction}")
+                print(f"\033[92m[Vibe Applied]\033[0m {file_path.name}: {instruction}")
+            else:
+                print(f"\033[91m[Vibe Failed]\033[0m No content returned for {file_path.name}")
 
-        except Exception: pass
+        except Exception as e:
+            print(f"\033[91m[Vibe Error]\033[0m {e}")
 
 class SeamlessAssistant:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
         if not self.api_key:
-            print("\033[91m[Error]\033[0m GEMINI_API_KEY not found.")
+            print("\033[91m[Error]\033[0m GEMINI_API_KEY not found in environment.")
             sys.exit(1)
         
         try:
@@ -71,11 +81,12 @@ class SeamlessAssistant:
             print(f"\033[91m[Error]\033[0m Failed to initialize Gemini client: {e}")
             sys.exit(1)
             
-        self.model_name = 'gemini-1.5-flash'
+        # Updated to a valid stable model name
+        self.model_name = 'gemini-1.5-flash' 
         self.system_info = {
             "os": platform.system(),
             "cwd": str(Path.cwd()),
-            "files": [f.name for f in Path.cwd().glob('*') if f.is_file()][:20] # Context
+            "files": [f.name for f in Path.cwd().glob('*') if f.is_file()][:30]
         }
 
     def get_assistant_plan(self, user_input):
@@ -85,22 +96,22 @@ class SeamlessAssistant:
         Files in directory: {self.system_info['files']}
 
         User Wish: "{user_input}"
-
         Goal: Provide a complete, automated plan to fulfill this wish. 
-        
+
         CRITICAL RULES:
-        1. BE A DOER: If a user asks "how to" or for a solution, ALWAYS provide the actions to execute it. Never just explain.
-        2. COMPLEX TASKS: For tasks like finding duplicates, resizing images, or log analysis, WRITE A SCRIPT (Python, PowerShell, or Bash) and then add a COMMAND to run it.
-        3. PLATFORM SPECIFIC: Use PowerShell (`powershell.exe -ExecutionPolicy Bypass -File ...`) for Windows scripts and Bash for Linux/Mac.
-        4. CLEANUP: If you create a temporary script, the last action should be a command to delete it.
+        1. BE A DOER: Provide the actions to execute the solution immediately.
+        2. SCRIPTS: For logic, write a complete script (Python, Bash, or PowerShell).
+        3. PLATFORM SPECIFIC: Use PowerShell for Windows and Bash for Linux/Mac.
+        4. ROBUSTNESS: When installing dependencies, check if they exist first. Avoid hardcoded `--index-url` or specific CUDA versions unless absolutely necessary for hardware compatibility. Prefer standard `pip install`.
+        5. CLEANUP: Always include a final command to delete any temporary scripts created.
 
         Respond ONLY with a JSON object:
         {{
-            "explanation": "A high-level summary of the approach",
+            "explanation": "Summary of approach",
             "actions": [
-                {{ "type": "write_file", "path": "script_name.ext", "content": "FULL SCRIPT CONTENT" }},
-                {{ "type": "command", "content": "shell command to run the script", "is_dangerous": false }},
-                {{ "type": "command", "content": "command to delete the script", "is_dangerous": false }}
+                {{ "type": "write_file", "path": "script.ext", "content": "CONTENT" }},
+                {{ "type": "command", "content": "shell command", "is_dangerous": false }},
+                {{ "type": "command", "content": "rm script.ext", "is_dangerous": false }}
             ]
         }}
         """
@@ -110,85 +121,93 @@ class SeamlessAssistant:
             if content.startswith("```json"): content = content[7:-3].strip()
             return json.loads(content)
         except Exception as e:
-            return {"explanation": f"Error: {e}", "actions": []}
+            return {"explanation": f"Failed to generate plan: {e}", "actions": []}
 
     def get_vibe_implementation(self, file_path, full_content, instruction):
-        prompt = f"Expert coder task: Update {file_path.name} based on '@gemini {instruction}'. Respond with FULL file content only.\n\n{full_content}"
+        # Specific instructions to the model to ensure the @gemini tag is consumed/removed
+        prompt = (
+            f"Expert coder task: Update '{file_path.name}' based on the instruction: '{instruction}'.\n"
+            f"IMPORTANT: Return the FULL file content. Ensure the '@gemini' instruction line is removed from the output.\n"
+            f"Do not include any preamble, only the raw file content.\n\n"
+            f"Current File Content:\n{full_content}"
+        )
         try:
             response = self.client.models.generate_content(model=self.model_name, contents=prompt)
             content = response.text.strip()
+            # Remove Markdown code blocks if present
             if content.startswith("```"):
                 lines = content.splitlines()
                 if lines[0].startswith("```"): lines = lines[1:]
                 if lines[-1].startswith("```"): lines = lines[:-1]
                 content = "\n".join(lines)
             return content
-        except Exception: return None
+        except Exception as e:
+            print(f"Model Error: {e}")
+            return None
 
     def execute_plan(self, plan):
-        print(f"\n\033[95m[PROPOSED ORCHESTRATION PLAN]\033[0m")
-        print(f"Summary: {plan['explanation']}")
+        print(f"\n\033[95m[PLAN]\033[0m {plan['explanation']}")
         
-        print(f"\n\033[94mThe following actions will be performed:\033[0m")
         for i, action in enumerate(plan['actions'], 1):
             if action['type'] == 'command':
-                danger = " \033[91m[DANGEROUS]\033[0m" if action.get('is_dangerous') else ""
-                print(f"  {i}. [EXECUTE] `{action['content']}`{danger}")
+                print(f"  {i}. \033[94m[EXEC]\033[0m {action['content']}")
             elif action['type'] == 'write_file':
-                print(f"  {i}. [CREATE] `{action['path']}`")
-                # Show a preview of the script being written
-                preview = action['content'].splitlines()
-                preview_snippet = "\n      ".join(preview[:5])
-                if len(preview) > 5: preview_snippet += "\n      ..."
-                print(f"      \033[90mContent Preview:\n      {preview_snippet}\033[0m")
+                print(f"  {i}. \033[94m[WRITE]\033[0m {action['path']}")
+                # Show preview of file content
+                lines = action['content'].splitlines()
+                preview = "\n".join([f"      | {l}" for l in lines[:5]])
+                if len(lines) > 5: preview += f"\n      | ... ({len(lines)-5} more lines)"
+                print(f"\033[90m{preview}\033[0m")
 
-        confirm = input(f"\nDo you want to proceed? (y/n): ").lower()
+        confirm = input(f"\nExecute these steps? (y/n): ").lower()
         if confirm != 'y':
-            print("\033[93mOrchestration aborted.\033[0m")
+            print("Aborted.")
             return
 
         for action in plan['actions']:
-            if action['type'] == 'command':
-                cmd = action['content']
-                print(f"\033[93mRunning:\033[0m {cmd}")
-                subprocess.run(cmd, shell=True)
-            
-            elif action['type'] == 'write_file':
-                path = action['path']
-                print(f"\033[92mWriting:\033[0m {path}")
-                with open(path, 'w', encoding='utf-8') as f:
-                    f.write(action['content'])
+            try:
+                if action['type'] == 'command':
+                    print(f"  [RUNNING] {action['content']}")
+                    result = subprocess.run(action['content'], shell=True, capture_output=True, text=True)
+                    if result.stdout: print(f"\033[32m{result.stdout}\033[0m")
+                    if result.returncode != 0:
+                        print(f"\033[91m[Command Failed]\033[0m\n{result.stderr}")
+                        break
+                elif action['type'] == 'write_file':
+                    print(f"  [WRITING] {action['path']}")
+                    with open(action['path'], 'w', encoding='utf-8') as f:
+                        f.write(action['content'])
+            except Exception as e:
+                print(f"\033[91m[Execution Error]\033[0m {e}")
+                break
         
-        print("\n\033[92m✔ All tasks completed successfully.\033[0m")
+        print("\033[92m✔ Task completed.\033[0m")
 
     def run(self):
         print(f"\n=== Gemini Seamless Orchestrator ({self.system_info['os']}) ===")
-        print("I can run commands, write scripts, and watch your code for @gemini tags.")
-        print("Type your wish or 'exit' to quit.\n")
-
-        # Start Background Vibe Watcher
+        print("Watching directory for changes... (Add @gemini \"instruction\" to any file to trigger)")
+        
         observer = Observer()
         observer.schedule(VibeHandler(self), ".", recursive=True)
         observer.start()
 
         try:
             while True:
-                wish = input(f"Wish > ").strip()
+                wish = input(f"\nWish > ").strip()
                 if not wish: continue
                 if wish.lower() in ['exit', 'quit']: break
                 
                 plan = self.get_assistant_plan(wish)
-                if plan['actions']:
+                if plan.get('actions'):
                     self.execute_plan(plan)
                 else:
-                    print(f"\n{plan['explanation']}")
-                print()
+                    print(f"\nAssistant: {plan.get('explanation', 'I cannot fulfill that wish.')}")
         except KeyboardInterrupt:
             pass
         finally:
             observer.stop()
             observer.join()
-            print("\nGoodbye!")
+            print("\nShutting down.")
 
 if __name__ == "__main__":
     assistant = SeamlessAssistant()
