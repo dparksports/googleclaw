@@ -52,4 +52,4 @@ python detect_humans_filehistory.py
 *The script targets `~/Downloads/reolink` by default and uses your GPU automatically if available.*
 
 ---
-*Created with 🤖 Antigravity IDE*
+Made with ❤️ in California
