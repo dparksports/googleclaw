@@ -81,13 +81,41 @@ class SeamlessAssistant:
             print(f"\033[91m[Error]\033[0m Failed to initialize Gemini client: {e}")
             sys.exit(1)
             
-        # Updated to a valid stable model name
-        self.model_name = 'gemini-1.5-flash' 
+        self.model_name = self.select_model()
         self.system_info = {
             "os": platform.system(),
             "cwd": str(Path.cwd()),
             "files": [f.name for f in Path.cwd().glob('*') if f.is_file()][:30]
         }
+
+    def select_model(self):
+        try:
+            models = [m.name.replace('models/', '') for m in self.client.models.list() 
+                     if 'generateContent' in m.supported_actions]
+            
+            # Prioritize a default if available, else let user choose
+            default_model = 'gemini-3-flash-preview'
+            if default_model not in models:
+                default_model = models[0] if models else None
+
+            print("\nAvailable Models:")
+            for i, m in enumerate(models, 1):
+                print(f"  {i}. {m}")
+            
+            choice = input(f"\nSelect model [default {default_model}]: ").strip()
+            if not choice:
+                return default_model
+            
+            if choice.isdigit() and 1 <= int(choice) <= len(models):
+                return models[int(choice)-1]
+            elif choice in models:
+                return choice
+            else:
+                print(f"Invalid choice, using {default_model}")
+                return default_model
+        except Exception as e:
+            print(f"Error listing models: {e}. Using gemini-2.0-flash.")
+            return 'gemini-2.0-flash'
 
     def get_assistant_plan(self, user_input):
         prompt = f"""
