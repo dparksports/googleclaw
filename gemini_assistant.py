@@ -169,7 +169,8 @@ class SeamlessAssistant:
         3. READ FILES: If the user asks how a script works and you don't have its content, your PLAN should include a command to display it (e.g., `type filename` on Windows).
         4. SAFE PATHS: On Windows, use raw strings r"C:\\path".
         5. POWERSHELL: When using variables in strings followed by colons, always use ${{var}}: or $($var): to avoid drive reference errors (e.g., "PID ${{id}}:").
-        6. CLEANUP: Always include a final command to delete temporary scripts, UNLESS the user explicitly asks to keep them.
+        6. WINDOWS: You are in a PowerShell environment. Do NOT prefix commands with 'powershell -Command'. Just write the PowerShell code directly.
+        7. CLEANUP: Always include a final command to delete temporary scripts, UNLESS the user explicitly asks to keep them.
 
         Respond ONLY with a JSON object:
         {{
@@ -271,9 +272,9 @@ class SeamlessAssistant:
                     cmd = action['content']
                     
                     if platform.system() == 'Windows':
-                        # Use a list without shell=True to avoid quote-escaping hell in cmd.exe
-                        run_cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd]
-                        result = subprocess.run(run_cmd, capture_output=True, text=True)
+                        # Use -Command - to read from stdin, avoiding quoting/expansion issues
+                        run_cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "-"]
+                        result = subprocess.run(run_cmd, input=cmd, capture_output=True, text=True)
                     else:
                         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
                         
