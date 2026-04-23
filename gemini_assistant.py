@@ -268,7 +268,15 @@ class SeamlessAssistant:
             try:
                 if action['type'] == 'command':
                     print(f"  [RUNNING] {action['content']}")
-                    result = subprocess.run(action['content'], shell=True, capture_output=True, text=True)
+                    cmd = action['content']
+                    
+                    if platform.system() == 'Windows':
+                        # Use a list without shell=True to avoid quote-escaping hell in cmd.exe
+                        run_cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd]
+                        result = subprocess.run(run_cmd, capture_output=True, text=True)
+                    else:
+                        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+                        
                     if result.stdout:
                         print(f"\033[32m{result.stdout}\033[0m")
                         captured_output.append(result.stdout)
