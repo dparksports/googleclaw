@@ -183,7 +183,11 @@ class SeamlessAssistant:
         }}
         """
         try:
-            response = self.client.models.generate_content(model=self.model_name, contents=prompt)
+            response = self.client.models.generate_content(
+                model=self.model_name, 
+                contents=prompt,
+                config={'response_mime_type': 'application/json'}
+            )
             content = response.text.strip()
             
             # Robust JSON extraction

@@ -117,7 +117,7 @@ def chat_route():
         response = client.models.generate_content(
             model=model_name, 
             contents=contents,
-            config={'system_instruction': system_instruction}
+            config={'system_instruction': system_instruction, 'response_mime_type': 'application/json'}
         )
         text = response.text.strip()
         
