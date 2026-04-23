@@ -168,7 +168,8 @@ class SeamlessAssistant:
         2. NO EMPTY PROMISES: Never use CHAT mode to describe what you *would* do. If action is needed, provide a PLAN.
         3. READ FILES: If the user asks how a script works and you don't have its content, your PLAN should include a command to display it (e.g., `type filename` on Windows).
         4. SAFE PATHS: On Windows, use raw strings r"C:\\path".
-        5. CLEANUP: Always include a final command to delete temporary scripts, UNLESS the user explicitly asks to keep them.
+        5. POWERSHELL: When using variables in strings followed by colons, always use ${var}: or $($var): to avoid drive reference errors (e.g., "PID ${id}:").
+        6. CLEANUP: Always include a final command to delete temporary scripts, UNLESS the user explicitly asks to keep them.
 
         Respond ONLY with a JSON object:
         {{
@@ -346,9 +347,20 @@ class SeamlessAssistant:
                             
                         print("\033[90m[*] Analyzing output...\033[0m")
                         output_str = output if output.strip() else "(Command executed successfully with no output)"
-                        current_wish = f"Original request: '{wish}'.\n\nCommand output:\n{output_str}\n\nIf this output gives you the final answer, respond with a 'chat' type and the explanation. If you STILL need more info (e.g., reading a generated file), respond with a new 'plan'."
+                        current_wish = (
+                            f"Original request: '{wish}'.\n\n"
+                            f"We have executed some steps. Command output:\n{output_str}\n\n"
+                            "Based on this output, can you now fulfill the original request? "
+                            "If yes, respond with type 'chat' and a comprehensive explanation. "
+                            "If you need to perform more actions (like reading a specific file mentioned in the output), respond with type 'plan'."
+                        )
                     else:
-                        print(f"\n\033[94m[Assistant]\033[0m {plan.get('explanation', 'I cannot fulfill that wish.')}")
+                        explanation = plan.get('explanation')
+                        if not explanation:
+                            # Debug: what did the model actually return?
+                            explanation = f"[Internal Error] Model returned 'chat' but no explanation. Plan: {json.dumps(plan)}"
+                        
+                        print(f"\n\033[94m[Assistant]\033[0m {explanation}")
                         break
                 
                 if step_count >= max_steps:
