@@ -340,6 +340,9 @@ class SeamlessAssistant:
                 step_count = 0
                 max_steps = 5
                 
+                # Maintain history of actions and outputs to prevent looping
+                session_history = f"Original request: '{wish}'.\n\nExecution History:\n"
+                
                 while step_count < max_steps:
                     step_count += 1
                     plan = self.get_assistant_plan(current_wish)
@@ -355,12 +358,22 @@ class SeamlessAssistant:
                             
                         print("\033[90m[*] Analyzing output...\033[0m")
                         output_str = output if output.strip() else "(Command executed successfully with no output)"
+                        
+                        # Append the latest actions and output to the history
+                        session_history += f"--- Step {step_count} ---\n"
+                        for action in plan['actions']:
+                            if action['type'] == 'command':
+                                session_history += f"Ran command: {action['content']}\n"
+                            elif action['type'] == 'write_file':
+                                session_history += f"Wrote file: {action['path']}\n"
+                        session_history += f"Output:\n{output_str}\n\n"
+                        
                         current_wish = (
-                            f"Original request: '{wish}'.\n\n"
-                            f"We have executed some steps. Command output:\n{output_str}\n\n"
-                            "Based on this output, can you now fulfill the original request? "
+                            f"{session_history}"
+                            "Based on the ENTIRE execution history above, can you now fulfill the original request? "
                             "If yes, respond with type 'chat' and a comprehensive explanation. "
-                            "If you need to perform more actions (like reading a specific file mentioned in the output), respond with type 'plan'."
+                            "If you have already fulfilled the request (e.g., written the requested file), respond with 'chat' confirming completion. "
+                            "If you STILL need to perform more actions, respond with type 'plan'. DO NOT repeat actions you have already taken."
                         )
                         
                         if step_count == max_steps:
