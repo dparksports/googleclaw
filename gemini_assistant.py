@@ -4,6 +4,7 @@ import platform
 import subprocess
 import json
 import time
+import re
 from google import genai
 from dotenv import load_dotenv
 from pathlib import Path
@@ -172,7 +173,7 @@ class SeamlessAssistant:
         Respond ONLY with a JSON object:
         {{
             "type": "chat" or "plan",
-            "explanation": "Your direct answer (for chat) or summary of actions (for plan)",
+            "explanation": "Your direct answer (for chat) or summary of actions (for plan). IMPORTANT: Escape all backslashes properly (e.g., C:\\\\Path).",
             "actions": [
                 {{ "type": "write_file", "path": "script.ext", "content": "CONTENT" }},
                 {{ "type": "command", "content": "shell command", "is_dangerous": false }}
@@ -182,9 +183,36 @@ class SeamlessAssistant:
         try:
             response = self.client.models.generate_content(model=self.model_name, contents=prompt)
             content = response.text.strip()
-            if content.startswith("```json"): content = content[7:-3].strip()
-            data = json.loads(content)
-            return data
+            
+            # Robust JSON extraction
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif content.startswith("```"):
+                content = content.split("```")[1].strip()
+            
+            # Find the actual JSON object
+            start = content.find("{")
+            end = content.rfind("}")
+            if start != -1 and end != -1:
+                content = content[start:end+1]
+            
+            try:
+                return json.loads(content)
+            except json.JSONDecodeError as e:
+                if "Invalid \\escape" in str(e):
+                    # Attempt to fix common Windows path escaping issues
+                    # Escape backslashes that are not followed by a valid escape char
+                    
+                    # This is a broad fix: escape all backslashes, then fix already-escaped ones
+                    fixed = content.replace("\\", "\\\\")
+                    # Fix common legitimate escapes that we just doubled
+                    fixed = fixed.replace("\\\\\"", "\\\"").replace("\\\\n", "\\n").replace("\\\\r", "\\r").replace("\\\\t", "\\t")
+                    try:
+                        return json.loads(fixed)
+                    except:
+                        pass
+                raise e
+
         except Exception as e:
             return {"type": "chat", "explanation": f"Failed to generate response: {e}", "actions": []}
 
@@ -299,19 +327,32 @@ class SeamlessAssistant:
                 if wish.lower() in ['exit', 'quit']: break
 
                 # Main Orchestration Loop
-                plan = self.get_assistant_plan(wish)
+                current_wish = wish
+                step_count = 0
+                max_steps = 5
                 
-                if plan.get('type') == 'plan' and plan.get('actions'):
-                    output = self.execute_plan(plan)
+                while step_count < max_steps:
+                    step_count += 1
+                    plan = self.get_assistant_plan(current_wish)
                     
-                    # SMART FOLLOW-UP: If we gathered info (like reading a file), synthesize the answer
-                    if output and self.active_mode != 'plan':
-                        print("\033[90m[*] Synthesizing answer based on output...\033[0m")
-                        synthesis_wish = f"I previously asked: '{wish}'. Use the following command output to provide the final explanation:\n\n{output}"
-                        final_reply = self.get_assistant_plan(synthesis_wish)
-                        print(f"\n\033[94m[Assistant]\033[0m {final_reply.get('explanation')}")
-                else:
-                    print(f"\n\033[94m[Assistant]\033[0m {plan.get('explanation', 'I cannot fulfill that wish.')}")
+                    if plan.get('type') == 'plan' and plan.get('actions'):
+                        output = self.execute_plan(plan)
+                        
+                        if output is None: # Aborted by user
+                            break
+                            
+                        if self.active_mode == 'plan':
+                            break
+                            
+                        print("\033[90m[*] Analyzing output...\033[0m")
+                        output_str = output if output.strip() else "(Command executed successfully with no output)"
+                        current_wish = f"Original request: '{wish}'.\n\nCommand output:\n{output_str}\n\nIf this output gives you the final answer, respond with a 'chat' type and the explanation. If you STILL need more info (e.g., reading a generated file), respond with a new 'plan'."
+                    else:
+                        print(f"\n\033[94m[Assistant]\033[0m {plan.get('explanation', 'I cannot fulfill that wish.')}")
+                        break
+                
+                if step_count >= max_steps:
+                    print("\033[91m[Error]\033[0m Reached maximum number of steps for this request.")
         except KeyboardInterrupt:
             pass
         finally:

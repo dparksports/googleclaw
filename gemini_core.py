@@ -121,7 +121,6 @@ def chat_route():
         )
         text = response.text.strip()
         
-        # Try to parse as JSON
         try:
             # Strip markdown if needed
             json_text = text
@@ -130,7 +129,23 @@ def chat_route():
             elif json_text.startswith("```"):
                 json_text = json_text.split("```")[1].strip()
             
-            data = json.loads(json_text)
+            # Extract actual JSON object
+            start = json_text.find("{")
+            end = json_text.rfind("}")
+            if start != -1 and end != -1:
+                json_text = json_text[start:end+1]
+            
+            try:
+                data = json.loads(json_text)
+            except json.JSONDecodeError as e:
+                if "Invalid \\escape" in str(e):
+                    # Fix common Windows path issues
+                    fixed = json_text.replace("\\", "\\\\")
+                    fixed = fixed.replace("\\\\\"", "\\\"").replace("\\\\n", "\\n").replace("\\\\r", "\\r").replace("\\\\t", "\\t")
+                    data = json.loads(fixed)
+                else:
+                    raise e
+
             if data.get("type") == "plan":
                 return jsonify(data)
             if data.get("response"):
