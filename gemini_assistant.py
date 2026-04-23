@@ -92,6 +92,7 @@ class SeamlessAssistant:
             "cwd": str(Path.cwd()),
             "files": [f.name for f in Path.cwd().glob('*') if f.is_file()][:30]
         }
+        self.chat = None
 
     def load_config(self):
         default = 'gemini-3.1-flash-lite-preview'
@@ -144,25 +145,11 @@ class SeamlessAssistant:
             print(f"Error listing models: {e}. Using {self.model_name}")
             return self.model_name
 
-    def get_assistant_plan(self, user_input):
-        mode_instruction = ""
-        if self.active_mode == "chat":
-            mode_instruction = "FORCE MODE: CHAT. Do not propose actions. Only explain/answer."
-        elif self.active_mode == "plan":
-            mode_instruction = "FORCE MODE: PLAN. Always provide actions, even for questions (e.g. read the file)."
-
-        prompt = f"""
+    def setup_chat(self):
+        system_instruction = f"""
         You are a Seamless OS Orchestrator. 
         Context: OS={self.system_info['os']}, CWD={self.system_info['cwd']}
-        Files in directory: {self.system_info['files']}
-        {mode_instruction}
-
-        User Wish: "{user_input}"
         
-        MODES:
-        1. CHAT: Use ONLY if you can answer the user's wish completely using only the provided context. Do NOT say "I will read" or "I will check"—if you need to do that, use PLAN mode.
-        2. PLAN: Use if you need to execute commands, write files, or READ existing files (using 'type' or 'cat') to fulfill the wish.
-
         CRITICAL RULES:
         1. BE A DOER: In PLAN mode, provide the exact actions to fulfill the wish immediately.
         2. NO EMPTY PROMISES: Never use CHAT mode to describe what you *would* do. If action is needed, provide a PLAN.
@@ -170,7 +157,8 @@ class SeamlessAssistant:
         4. SAFE PATHS: On Windows, use raw strings r"C:\\path".
         5. POWERSHELL: When using variables in strings followed by colons, always use ${{var}}: or $($var): to avoid drive reference errors (e.g., "PID ${{id}}:").
         6. WINDOWS: You are in a PowerShell environment. Do NOT prefix commands with 'powershell -Command'. Just write the PowerShell code directly.
-        7. CLEANUP: Always include a final command to delete temporary scripts, UNLESS the user explicitly asks to keep them.
+        7. DEPENDENCIES: Avoid recommending or installing system-level drivers (like Npcap/WinPcap) or complex C-extensions unless explicitly requested. If a script fails due to a missing complex dependency, output a plan explaining the failure and suggest alternative built-in tools (e.g., pktmon, netstat) or simpler libraries instead of trying to force the installation.
+        8. CLEANUP: Always include a final command to delete temporary scripts, UNLESS the user explicitly asks to keep them.
 
         Respond ONLY with a JSON object:
         {{
@@ -182,12 +170,35 @@ class SeamlessAssistant:
             ]
         }}
         """
+        self.chat = self.client.chats.create(
+            model=self.model_name,
+            config={
+                'system_instruction': system_instruction,
+                'response_mime_type': 'application/json'
+            }
+        )
+
+    def get_assistant_plan(self, user_input, is_followup=False):
+        if self.chat is None:
+            self.setup_chat()
+
+        mode_instruction = ""
+        if self.active_mode == "chat":
+            mode_instruction = "FORCE MODE: CHAT. Do not propose actions. Only explain/answer."
+        elif self.active_mode == "plan":
+            mode_instruction = "FORCE MODE: PLAN. Always provide actions, even for questions (e.g. read the file)."
+
+        # Dynamic context
+        files = [f.name for f in Path.cwd().glob('*') if f.is_file()][:30]
+        context = f"Files in directory: {files}\n{mode_instruction}"
+
+        if not is_followup:
+            prompt = f"{context}\n\nUser Wish: \"{user_input}\""
+        else:
+            prompt = f"{context}\n\nCommand Output / Follow-up:\n{user_input}\n\nBased on this output, fulfill the original wish. If done, respond with 'chat'. If more actions needed, respond with 'plan'."
+
         try:
-            response = self.client.models.generate_content(
-                model=self.model_name, 
-                contents=prompt,
-                config={'response_mime_type': 'application/json'}
-            )
+            response = self.chat.send_message(prompt)
             content = response.text.strip()
             
             # Robust JSON extraction
@@ -207,11 +218,7 @@ class SeamlessAssistant:
             except json.JSONDecodeError as e:
                 if "Invalid \\escape" in str(e):
                     # Attempt to fix common Windows path escaping issues
-                    # Escape backslashes that are not followed by a valid escape char
-                    
-                    # This is a broad fix: escape all backslashes, then fix already-escaped ones
                     fixed = content.replace("\\", "\\\\")
-                    # Fix common legitimate escapes that we just doubled
                     fixed = fixed.replace("\\\\\"", "\\\"").replace("\\\\n", "\\n").replace("\\\\r", "\\r").replace("\\\\t", "\\t")
                     try:
                         return json.loads(fixed)
@@ -264,8 +271,8 @@ class SeamlessAssistant:
                     preview += f"\n      |\n      | ... ({len(lines)-5} more lines)"
                 print(f"\033[90m{preview}\033[0m")
 
-        confirm = input(f"\nExecute these steps? (y/n): ").lower()
-        if confirm != 'y':
+        confirm = input(f"\nExecute these steps? (Y/n): ").lower()
+        if confirm not in ['y', '']:
             print("Aborted.")
             return None
 
@@ -302,11 +309,13 @@ class SeamlessAssistant:
     def run(self):
         print(f"\n=== Gemini Seamless Orchestrator ({self.system_info['os']}) ===")
         print("Watching directory for changes... (Add @gemini \"instruction\" to any file to trigger)")
-        print("Commands: /model [n], /chat (force inquiry), /plan (force action), /auto (smart), exit")
+        print("Commands: /model [n], /chat (force inquiry), /plan (force action), /auto (smart), /clear (reset memory), exit")
 
         observer = Observer()
         observer.schedule(VibeHandler(self), ".", recursive=True)
         observer.start()
+        
+        self.setup_chat()
 
         try:
             while True:
@@ -321,6 +330,12 @@ class SeamlessAssistant:
                 if cmd in ['/model', '/config', '/setup']:
                     arg = parts[1] if len(parts) > 1 else None
                     self.model_name = self.select_model(arg)
+                    self.setup_chat() # Reset memory for new model
+                    continue
+                
+                if cmd in ['/clear', '/reset']:
+                    self.setup_chat()
+                    print("\033[92m[System]\033[0m Chat history cleared.")
                     continue
                 
                 if cmd in ['/chat', '/q']:
@@ -341,16 +356,15 @@ class SeamlessAssistant:
                 if wish.lower() in ['exit', 'quit']: break
 
                 # Main Orchestration Loop
-                current_wish = wish
                 step_count = 0
                 max_steps = 5
                 
-                # Maintain history of actions and outputs to prevent looping
-                session_history = f"Original request: '{wish}'.\n\nExecution History:\n"
+                is_followup = False
+                current_prompt = wish
                 
                 while step_count < max_steps:
                     step_count += 1
-                    plan = self.get_assistant_plan(current_wish)
+                    plan = self.get_assistant_plan(current_prompt, is_followup=is_followup)
                     
                     if plan.get('type') == 'plan' and plan.get('actions'):
                         output = self.execute_plan(plan)
@@ -364,22 +378,8 @@ class SeamlessAssistant:
                         print("\033[90m[*] Analyzing output...\033[0m")
                         output_str = output if output.strip() else "(Command executed successfully with no output)"
                         
-                        # Append the latest actions and output to the history
-                        session_history += f"--- Step {step_count} ---\n"
-                        for action in plan['actions']:
-                            if action['type'] == 'command':
-                                session_history += f"Ran command: {action['content']}\n"
-                            elif action['type'] == 'write_file':
-                                session_history += f"Wrote file: {action['path']}\n"
-                        session_history += f"Output:\n{output_str}\n\n"
-                        
-                        current_wish = (
-                            f"{session_history}"
-                            "Based on the ENTIRE execution history above, can you now fulfill the original request? "
-                            "If yes, respond with type 'chat' and a comprehensive explanation. "
-                            "If you have already fulfilled the request (e.g., written the requested file), respond with 'chat' confirming completion. "
-                            "If you STILL need to perform more actions, respond with type 'plan'. DO NOT repeat actions you have already taken."
-                        )
+                        current_prompt = output_str
+                        is_followup = True
                         
                         if step_count == max_steps:
                             cont = input(f"\n\033[93m[Warning]\033[0m Reached {max_steps} steps. Continue investigation? (Y/n): ").strip().lower()
@@ -402,7 +402,6 @@ class SeamlessAssistant:
             observer.stop()
             observer.join()
             print("\nShutting down.")
-
 
 if __name__ == "__main__":
     assistant = SeamlessAssistant()
