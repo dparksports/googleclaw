@@ -168,7 +168,7 @@ class SeamlessAssistant:
         2. NO EMPTY PROMISES: Never use CHAT mode to describe what you *would* do. If action is needed, provide a PLAN.
         3. READ FILES: If the user asks how a script works and you don't have its content, your PLAN should include a command to display it (e.g., `type filename` on Windows).
         4. SAFE PATHS: On Windows, use raw strings r"C:\\path".
-        5. POWERSHELL: When using variables in strings followed by colons, always use ${var}: or $($var): to avoid drive reference errors (e.g., "PID ${id}:").
+        5. POWERSHELL: When using variables in strings followed by colons, always use ${{var}}: or $($var): to avoid drive reference errors (e.g., "PID ${{id}}:").
         6. CLEANUP: Always include a final command to delete temporary scripts, UNLESS the user explicitly asks to keep them.
 
         Respond ONLY with a JSON object:
@@ -354,6 +354,14 @@ class SeamlessAssistant:
                             "If yes, respond with type 'chat' and a comprehensive explanation. "
                             "If you need to perform more actions (like reading a specific file mentioned in the output), respond with type 'plan'."
                         )
+                        
+                        if step_count == max_steps:
+                            cont = input(f"\n\033[93m[Warning]\033[0m Reached {max_steps} steps. Continue investigation? (Y/n): ").strip().lower()
+                            if cont == 'y' or cont == '':
+                                max_steps += 5
+                            else:
+                                print("\033[91m[Error]\033[0m Investigation halted by user.")
+                                break
                     else:
                         explanation = plan.get('explanation')
                         if not explanation:
@@ -362,9 +370,6 @@ class SeamlessAssistant:
                         
                         print(f"\n\033[94m[Assistant]\033[0m {explanation}")
                         break
-                
-                if step_count >= max_steps:
-                    print("\033[91m[Error]\033[0m Reached maximum number of steps for this request.")
         except KeyboardInterrupt:
             pass
         finally:
