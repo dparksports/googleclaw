@@ -1,0 +1,110 @@
+<!--
+  ============================================================================
+  Sysmon Configuration: backgroundTaskHost.exe LoLBin Detection
+  ============================================================================
+  Monitors for Defense Evasion / Masquerading via backgroundTaskHost.exe.
+
+  Install / Update:
+    sysmon64.exe -accepteula -i  sysmon_bth_config.xml
+    sysmon64.exe -c sysmon_bth_config.xml          (update existing)
+
+  This config supplements your existing Sysmon baseline — merge the
+  relevant <RuleGroup> blocks into your production config if you already
+  have one deployed.
+  ============================================================================
+-->
+<Sysmon schemaversion="4.90">
+
+  <HashAlgorithms>SHA256,IMPHASH</HashAlgorithms>
+  <CheckRevocation>true</CheckRevocation>
+
+  <EventFiltering>
+
+    <!-- =============================================================
+         EVENT ID 1 — Process Creation
+         Log every backgroundTaskHost.exe launch with full command line.
+         This lets your SIEM correlate ServerName args against known
+         registered UWP packages.
+         ============================================================= -->
+    <RuleGroup name="BTH_ProcessCreate" groupRelation="or">
+      <ProcessCreate onmatch="include">
+
+        <!-- Catch backgroundTaskHost.exe regardless of path -->
+        <Image condition="end with">backgroundTaskHost.exe</Image>
+
+        <!-- Also catch if it's renamed but launched from the known path -->
+        <Image condition="contains">SystemApps</Image>
+
+        <!-- Catch svchost spawning anything with -ServerName (DCOM activation) -->
+        <ParentImage condition="end with">svchost.exe</ParentImage>
+
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- =============================================================
+         EVENT ID 3 — Network Connection
+         Alert when backgroundTaskHost.exe connects to ANY external IP.
+         Legitimate background tasks rarely make outbound connections
+         to non-Microsoft IPs. Your SIEM should flag connections to
+         non-Microsoft ASNs (especially CDNs like Akamai, Cloudflare
+         used for payload staging).
+         ============================================================= -->
+    <RuleGroup name="BTH_NetworkConnect" groupRelation="and">
+      <NetworkConnect onmatch="include">
+
+        <!-- Only fire for backgroundTaskHost.exe -->
+        <Image condition="end with">backgroundTaskHost.exe</Image>
+
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- Exclude loopback / local traffic to reduce noise -->
+    <RuleGroup name="BTH_NetworkConnect_Exclude" groupRelation="or">
+      <NetworkConnect onmatch="exclude">
+        <DestinationIp condition="is">127.0.0.1</DestinationIp>
+        <DestinationIp condition="is">::1</DestinationIp>
+        <DestinationIp condition="begin with">192.168.</DestinationIp>
+        <DestinationIp condition="begin with">10.</DestinationIp>
+        <DestinationIp condition="begin with">172.16.</DestinationIp>
+      </NetworkConnect>
+    </RuleGroup>
+
+    <!-- =============================================================
+         EVENT ID 7 — Image Loaded (DLL)
+         Detect DLL side-loading into backgroundTaskHost.exe.
+         Attackers may load unsigned DLLs into the trusted process.
+         ============================================================= -->
+    <RuleGroup name="BTH_ImageLoad" groupRelation="and">
+      <ImageLoad onmatch="include">
+        <Image condition="end with">backgroundTaskHost.exe</Image>
+        <!-- Only log unsigned or non-Microsoft-signed DLLs -->
+        <Signed condition="is">false</Signed>
+      </ImageLoad>
+    </RuleGroup>
+
+    <!-- =============================================================
+         EVENT ID 10 — Process Access
+         Detect if backgroundTaskHost.exe is injected into or accessed
+         with suspicious access masks (e.g., PROCESS_ALL_ACCESS).
+         ============================================================= -->
+    <RuleGroup name="BTH_ProcessAccess" groupRelation="and">
+      <ProcessAccess onmatch="include">
+        <TargetImage condition="end with">backgroundTaskHost.exe</TargetImage>
+        <!-- 0x1F0FFF = PROCESS_ALL_ACCESS, common in injection -->
+        <GrantedAccess condition="is">0x1F0FFF</GrantedAccess>
+      </ProcessAccess>
+    </RuleGroup>
+
+    <!-- =============================================================
+         EVENT ID 22 — DNS Query
+         Log DNS queries from backgroundTaskHost.exe to detect C2
+         domain resolution.
+         ============================================================= -->
+    <RuleGroup name="BTH_DNSQuery" groupRelation="and">
+      <DnsQuery onmatch="include">
+        <Image condition="end with">backgroundTaskHost.exe</Image>
+      </DnsQuery>
+    </RuleGroup>
+
+  </EventFiltering>
+</Sysmon>
