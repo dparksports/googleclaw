@@ -1,0 +1,50 @@
+<!--
+  ============================================================================
+  Sysmon Configuration: msedgewebview2.exe CDN Detection
+  ============================================================================
+  Detects when msedgewebview2.exe connects to Akamai or Amazon CloudFront.
+
+  Install / Update:
+    sysmon64.exe -c sysmon_webview2_config.xml
+  ============================================================================
+-->
+<Sysmon schemaversion="4.90">
+  <EventFiltering>
+
+    <!-- =============================================================
+         EVENT ID 1 — Process Creation
+         Log every msedgewebview2.exe and Widgets.exe launch to capture 
+         the parent process and the command line.
+         ============================================================= -->
+    <RuleGroup name="WebView2_ProcessCreate" groupRelation="or">
+      <ProcessCreate onmatch="include">
+        <Image condition="end with">msedgewebview2.exe</Image>
+        <Image condition="end with">Widgets.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+
+    <!-- =============================================================
+         EVENT ID 3 — Network Connection
+         Alert when msedgewebview2.exe or Widgets.exe connects to CDN ranges.
+         ============================================================= -->
+    <RuleGroup name="WebView2_NetworkConnect_CDN" groupRelation="and">
+      <NetworkConnect onmatch="include">
+        <Rule groupRelation="or">
+          <Image condition="end with">msedgewebview2.exe</Image>
+          <Image condition="end with">Widgets.exe</Image>
+        </Rule>
+        <Rule groupRelation="or">
+          <!-- AWS CloudFront & Akamai Subnets -->
+          <DestinationIp condition="begin with">13.</DestinationIp>
+          <DestinationIp condition="begin with">18.</DestinationIp>
+          <DestinationIp condition="begin with">23.</DestinationIp>
+          <DestinationIp condition="begin with">52.</DestinationIp>
+          <DestinationIp condition="begin with">54.</DestinationIp>
+          <DestinationIp condition="begin with">99.</DestinationIp>
+          <DestinationIp condition="begin with">104.</DestinationIp>
+        </Rule>
+      </NetworkConnect>
+    </RuleGroup>
+
+  </EventFiltering>
+</Sysmon>
