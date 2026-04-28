@@ -1,0 +1,7 @@
+{
+  "model": "C:\\Users\\honey\\.cache\\huggingface\\hub\\models--unsloth--gemma-4-31B-it-GGUF\\snapshots\\43e80d41a220ac7c83023daacd6a0d1fd8559251\\gemma-4-31B-it-Q4_K_M.gguf",
+  "provider": "local",
+  "engine": "llama.cpp",
+  "model_name_display": "Gemma 4 (31B) - Genius, needs ~18GB VRAM",
+  "local_url": "http://localhost:8000"
+}
