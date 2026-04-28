@@ -79,6 +79,7 @@ class SeamlessAssistant:
         
         self.config = self.load_config()
         self.model_name = self.config.get("model", "gemini-3.1-flash-lite-preview")
+        self.model_name_display = self.config.get("model_name_display", self.model_name)
         self.provider = self.config.get("provider", "google")
         
         if self.provider == "google":
@@ -199,8 +200,23 @@ class SeamlessAssistant:
     def _call_local_llm(self, prompt):
         import requests
         headers = {"Content-Type": "application/json"}
+        
+        # If the model name is a local file path (llama.cpp), we need to extract just the filename
+        # or ask the server what model it is currently running.
+        actual_model = self.model_name
+        if actual_model and ("/" in actual_model or "\\" in actual_model):
+            try:
+                # Query the server for the loaded model name
+                res = requests.get(f"{self.local_url}/v1/models")
+                if res.status_code == 200:
+                    models = res.json().get("models", [])
+                    if models:
+                        actual_model = models[0]["id"] if "id" in models[0] else models[0]["name"]
+            except:
+                pass
+                
         payload = {
-            "model": self.model_name,
+            "model": actual_model,
             "messages": self.chat_history + [{"role": "user", "content": prompt}],
             "format": "json"
         }
@@ -343,7 +359,7 @@ class SeamlessAssistant:
         try:
             while True:
                 mode_tag = f"[{self.active_mode.upper()}]" if self.active_mode != "auto" else ""
-                wish = input(f"\n({self.model_name}){mode_tag} Wish > ").strip()
+                wish = input(f"\n({self.model_name_display}){mode_tag} Wish > ").strip()
                 if not wish: continue
 
                 # Command Interceptor
