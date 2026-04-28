@@ -65,23 +65,92 @@ def ensure_hf_login():
     except:
         huggingface_hub.login()
 
+def build_llama_cpp_from_source():
+    print("\n\033[93m[System]\033[0m Attempting to build llama.cpp from source (CUDA)...")
+    print("This may take 2-5 minutes depending on your hardware.")
+    try:
+        if os.path.exists("llama.cpp_source"):
+            try: shutil.rmtree("llama.cpp_source")
+            except: pass
+        
+        print("Cloning repository...")
+        subprocess.run(["git", "clone", "--depth", "1", "https://github.com/ggerganov/llama.cpp", "llama.cpp_source"], check=True)
+        
+        build_dir = os.path.join("llama.cpp_source", "build")
+        os.makedirs(build_dir, exist_ok=True)
+        
+        print("Configuring CMake...")
+        subprocess.run(["cmake", "..", "-DGGML_CUDA=ON"], cwd=build_dir, check=True)
+        
+        print("Building (this takes time)...")
+        subprocess.run(["cmake", "--build", ".", "--config", "Release"], cwd=build_dir, check=True)
+        
+        # Locate the built executable
+        built_exe = os.path.join(build_dir, "bin", "Release", "llama-server.exe")
+        if not os.path.exists(built_exe):
+            built_exe = os.path.join(build_dir, "bin", "llama-server.exe")
+            
+        shutil.copy(built_exe, "llama-server.exe")
+        
+        try: shutil.rmtree("llama.cpp_source")
+        except: pass
+        print("\033[92m[System]\033[0m Successfully built and installed llama-server.exe from source!")
+        return True
+    except Exception as e:
+        print(f"\033[91m[Error]\033[0m Failed to build from source: {e}")
+        return False
+
 def download_llama_cpp():
     if os.path.exists("llama-server.exe"):
         return
+
+    has_cmake = shutil.which("cmake") is not None
+    has_nvcc = shutil.which("nvcc") is not None
+    
+    if has_cmake and has_nvcc:
+        print("\n\033[96m[System]\033[0m Compiler tools (CMake & CUDA) detected on your system.")
+        build_choice = input("Would you like to build llama.cpp from source for maximum hardware optimization? (Y/n): ").strip().lower()
+        if build_choice in ['y', '']:
+            if build_llama_cpp_from_source():
+                return
+            else:
+                print("Falling back to downloading pre-compiled binary...")
+
     print("\n\033[94m[System]\033[0m Downloading the inference engine (llama.cpp) for Windows...")
     api_url = "https://api.github.com/repos/ggerganov/llama.cpp/releases/latest"
     try:
         release_info = requests.get(api_url).json()
-        download_url = next((a["browser_download_url"] for a in release_info.get("assets", []) if "bin-win-cuda-cu12.2-x64.zip" in a["name"]), None)
+        assets = release_info.get("assets", [])
+        
+        # New naming convention: llama-<hash>-bin-win-cuda-<version>-x64.zip
+        download_url = next((a["browser_download_url"] for a in assets if a["name"].startswith("llama-") and "bin-win-cuda" in a["name"]), None)
+        
+        # Fallback to Vulkan if CUDA is not found
+        if not download_url:
+            download_url = next((a["browser_download_url"] for a in assets if a["name"].startswith("llama-") and "bin-win-vulkan" in a["name"]), None)
+            
+        # Check if there is a cudart dependency zip
+        cudart_url = next((a["browser_download_url"] for a in assets if a["name"].startswith("cudart-llama-") and "bin-win-cuda" in a["name"]), None)
+
         if download_url:
+            print(f"Downloading Engine: {download_url.split('/')[-1]}")
             r = requests.get(download_url)
             z = zipfile.ZipFile(io.BytesIO(r.content))
             z.extractall("llama_cpp_bin")
+            
+            if cudart_url:
+                print(f"Downloading CUDA dependencies: {cudart_url.split('/')[-1]}")
+                r_cudart = requests.get(cudart_url)
+                z_cudart = zipfile.ZipFile(io.BytesIO(r_cudart.content))
+                z_cudart.extractall("llama_cpp_bin")
+                
             for f in os.listdir("llama_cpp_bin"):
                 if f.endswith(".exe") or f.endswith(".dll"):
                     shutil.move(os.path.join("llama_cpp_bin", f), f)
             shutil.rmtree("llama_cpp_bin")
             print("\033[92m[System]\033[0m Engine installed successfully!")
+        else:
+            print("\033[91m[Error]\033[0m Could not find a suitable Windows binary in the latest release.")
     except Exception as e:
         print(f"\033[91m[Error]\033[0m Failed to download engine: {e}")
 
@@ -212,10 +281,23 @@ def start_server():
         return None
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "start":
-        p = start_server()
-        if p:
-            try: p.wait()
-            except KeyboardInterrupt: p.terminate()
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "start":
+            p = start_server()
+            if p:
+                try: p.wait()
+                except KeyboardInterrupt: p.terminate()
+        elif sys.argv[1] == "wait":
+            print("Waiting for local AI server to load into memory...", end="", flush=True)
+            for _ in range(300): # Give it up to 10 minutes to load massive 31B models
+                try:
+                    if requests.get("http://localhost:8000/v1/models").status_code == 200:
+                        print("\n\033[92m[System]\033[0m Server is fully loaded and ready!")
+                        sys.exit(0)
+                except:
+                    pass
+                time.sleep(2)
+                print(".", end="", flush=True)
+            print("\nTimeout waiting for server.")
     else:
         setup_interactive()
