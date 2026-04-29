@@ -1,0 +1,9 @@
+<Sysmon schemaversion="4.90">
+  <HashAlgorithms>SHA256</HashAlgorithms>
+  <EventFiltering>
+    <!-- Log network connections for svchost only -->
+    <NetworkConnect onmatch="include">
+      <Image condition="end with">svchost.exe</Image>
+    </NetworkConnect>
+  </EventFiltering>
+</Sysmon>
