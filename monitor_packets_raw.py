@@ -5,8 +5,8 @@ import csv
 import sys
 from datetime import datetime
 
-IP_TARGET = '52.110.4.23'
-CSV_FILE = 'packet_stats_52_110_4_23.csv'
+IP_TARGET = sys.argv[1] if len(sys.argv) > 1 else '52.110.4.23'
+CSV_FILE = f'packet_stats_{IP_TARGET.replace(".", "_")}.csv'
 DURATION = 9999999
 
 def get_local_ip():
@@ -28,10 +28,9 @@ def main():
         s.ioctl(socket.SIO_RCVALL, socket.RCVALL_ON)
     except OSError as e:
         print(f'Error binding socket: {e}')
-        print('Note: Raw sockets on Windows require Administrator privileges. Please run your terminal as Administrator to monitor raw packets natively.')
         sys.exit(1)
 
-    print(f'Monitoring traffic to/from {IP_TARGET} on interface {HOST} for {DURATION} seconds...')
+    print(f'Monitoring traffic to/from {IP_TARGET}...')
     
     with open(CSV_FILE, mode='w', newline='') as f:
         writer = csv.writer(f)
@@ -39,10 +38,9 @@ def main():
         
         start_time = time.time()
         next_tick = start_time + 1.0
-        
         rx_pkts, tx_pkts, rx_bytes, tx_bytes = 0, 0, 0, 0
-        
         s.settimeout(0.1)
+        
         while time.time() - start_time < DURATION:
             try:
                 packet, addr = s.recvfrom(65535)
@@ -57,25 +55,16 @@ def main():
                 elif dst_ip == IP_TARGET:
                     tx_pkts += 1
                     tx_bytes += pkt_length
-            except socket.timeout:
-                pass
-            except Exception:
-                pass
+            except socket.timeout: pass
+            except Exception: pass
             
             current_time = time.time()
             if current_time >= next_tick:
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 writer.writerow([timestamp, IP_TARGET, rx_pkts, tx_pkts, rx_bytes, tx_bytes])
                 f.flush()
-                print(f'[{timestamp}] Rx: {rx_pkts} pkts ({rx_bytes} B) | Tx: {tx_pkts} pkts ({tx_bytes} B)')
                 rx_pkts, tx_pkts, rx_bytes, tx_bytes = 0, 0, 0, 0
                 next_tick += 1.0
-
-    try:
-        s.ioctl(socket.SIO_RCVALL, socket.RCVALL_OFF)
-    except Exception:
-        pass
-    print(f'Finished monitoring. Data saved to {CSV_FILE}')
 
 if __name__ == '__main__':
     main()

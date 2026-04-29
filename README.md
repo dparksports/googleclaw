@@ -34,6 +34,7 @@ Built-in PowerShell scripts and guides to lock down your Windows environment:
 *   Identify and terminate rogue BackgroundTaskHost processes.
 *   Enforce Web Components lockdowns (WebView2 / Widgets).
 *   Create strict Outbound firewall rules to prevent unauthorized CDN communication.
+*   **Svchost Network Monitor Suite**: Fully automated detection of malicious sub-second connections and precise packet counting.
 
 ---
 
@@ -85,6 +86,12 @@ python local_llm_manager.py
 ```
 *Launch the interactive model downloader to switch between model families (DeepSeek, Gemma, etc.) or input custom Unsloth Hugging Face URLs.*
 
+### Run the Svchost Network Monitor
+```powershell
+./Start_Monitor.bat
+```
+*A user-friendly, interactive menu to launch the Auto-Pilot or Sysmon Kernel tracking modes to identify rogue background connections.*
+
 ---
 
 ## 📚 Documentation
@@ -93,6 +100,7 @@ For detailed guides on utilizing specific features, refer to the included markdo
 *   [Security Guide](SECURITY_GUIDE.md) - How to protect against rogue background tasks.
 *   [Firewall Guide](FIREWALL_GUIDE.md) - Blocking malicious outbound traffic.
 *   [WebView2 Lockdown Guide](WEBVIEW2_FIREWALL_GUIDE.md) - Securing Windows 11 Widgets and Search.
+*   [Svchost Monitor Guide](HOW_TO_MONITOR_SVCHOST.md) - Using the Auto-Pilot tracker for network security.
 
 ---
 *Made with ❤️ in California*

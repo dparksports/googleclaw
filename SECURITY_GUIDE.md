@@ -28,6 +28,7 @@ shut it down.
 
 | File | What It Does | Difficulty |
 |------|-------------|------------|
+| `Start_Monitor.bat` | **Svchost Network Monitor Suite** — An interactive toolkit containing Auto-Pilot and Sysmon modes to track sub-second rogue connections. ([See Guide](HOW_TO_MONITOR_SVCHOST.md)) | ⭐ Easy |
 | `active_defender_bth.ps1` | **Instant scan** — checks your PC right now and kills any fake processes | ⭐ Easy |
 | `hardening/sysmon_bth_config.xml` | **Monitoring** — watches for future attacks 24/7 | ⭐⭐ Medium |
 | `hardening/edr_siem_rules_bth.ps1` | **Enterprise alerts** — detection rules for corporate security platforms | ⭐⭐⭐ Advanced |

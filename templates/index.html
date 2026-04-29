@@ -7,22 +7,55 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Marked.js for Markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         .prose pre { background: #f4f4f4; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; }
         .prose code { background: #f4f4f4; padding: 0.2rem 0.4rem; border-radius: 0.25rem; }
+        #dashboard-grid { 
+            display: none; 
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); 
+            gap: 1rem; 
+            padding: 1rem; 
+            background: #f9fafb; 
+            border-bottom: 1px solid #e5e7eb;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .chart-card { background: white; padding: 1rem; border-radius: 0.5rem; shadow: 0 1px 2px rgba(0,0,0,0.05); border: 1px solid #e5e7eb; height: 250px; }
     </style>
 </head>
 <body class="bg-gray-100 h-screen flex flex-col">
     <header class="bg-blue-600 text-white p-4 flex justify-between items-center shadow-md">
         <h1 class="font-bold text-xl">Gemini AI Assistant</h1>
-        <div class="flex items-center gap-2">
-            <span class="text-sm opacity-80">Model:</span>
-            <select id="modelSelect" onchange="setModel()" class="text-black p-1 rounded text-sm"></select>
+        <div class="flex items-center gap-4">
+            <button onclick="toggleDashboard()" class="bg-blue-500 hover:bg-blue-400 px-3 py-1 rounded text-sm font-medium transition-colors">
+                📊 Toggle Dashboard
+            </button>
+            <div class="flex items-center gap-2">
+                <span class="text-sm opacity-80">Model:</span>
+                <select id="modelSelect" onchange="setModel()" class="text-black p-1 rounded text-sm"></select>     
+            </div>
         </div>
     </header>
-    
-    <div id="chat" class="flex-1 overflow-y-auto p-4 space-y-4">
-        <div class="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-100">
+
+    <div id="dashboard-grid">
+        <div class="chart-card flex flex-col justify-center items-center border-dashed border-2 border-gray-300 bg-gray-50">
+            <h3 class="text-sm font-bold text-gray-600 mb-4">Add New Target</h3>
+            <div class="w-full px-4 space-y-2">
+                <input type="text" id="newTargetIp" placeholder="Enter IP Address..." 
+                    class="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+                <button onclick="startMonitoring()" 
+                    class="w-full bg-blue-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-blue-700 transition-colors">
+                    + Start Monitoring
+                </button>
+            </div>
+            <p id="monitorStatus" class="mt-2 text-xs text-gray-500"></p>
+        </div>
+        <!-- Chart cards will be injected here -->
+    </div>
+
+    <div id="chat" class="flex-1 overflow-y-auto p-4 space-y-4">        <div class="bg-blue-50 p-4 rounded-lg shadow-sm border border-blue-100">
             <p class="text-blue-800">Welcome! You can type your messages below. Press <b>Enter</b> to send, or use the 📷 icon to attach an image.</p>
         </div>
     </div>
@@ -227,6 +260,146 @@
                 </div>`;
             } catch (err) {
                 planEl.innerHTML = `<div class="p-4 text-red-600">Execution failed: Connection error.</div>`;
+            }
+        }
+
+        let charts = {}; // Map of IP -> Chart instance
+        let chartInterval = null;
+
+        const KNOWN_IPS = {
+            "20.99.186.246": "StartMenuExperienceHost",
+            "23.7.129.5": "backgroundTaskHost",
+            "52.110.4.23": "Defender"
+        };
+
+        async function loadMonitoredIps() {
+            try {
+                const res = await fetch('/api/monitored-ips');
+                const data = await res.json();
+                
+                data.ips.forEach(ip => {
+                    if (!charts[ip]) {
+                        createChartCard(ip);
+                    }
+                });
+            } catch (err) {
+                console.error('Failed to load IPs:', err);
+            }
+        }
+
+        function createChartCard(ip) {
+            const grid = document.getElementById('dashboard-grid');
+            const cardId = `card-${ip.replace(/\./g, '-')}`;
+            const canvasId = `chart-${ip.replace(/\./g, '-')}`;
+            
+            const card = document.createElement('div');
+            card.className = 'chart-card';
+            card.id = cardId;
+            card.innerHTML = `<canvas id="${canvasId}"></canvas>`;
+            grid.appendChild(card);
+
+            const label = KNOWN_IPS[ip] ? `${ip} (${KNOWN_IPS[ip]})` : ip;
+            const ctx = document.getElementById(canvasId).getContext('2d');
+            charts[ip] = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Sent',
+                            borderColor: 'rgb(59, 130, 246)',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            data: [],
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Received',
+                            borderColor: 'rgb(16, 185, 129)',
+                            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                            data: [],
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: { duration: 0 },
+                    plugins: {
+                        legend: { position: 'top' },
+                        title: { display: true, text: label }
+                    },
+                    scales: {
+                        y: { beginAtZero: true },
+                        x: { display: false }
+                    }
+                }
+            });
+        }
+
+        function toggleDashboard() {
+            const container = document.getElementById('dashboard-grid');
+            if (container.style.display === 'none' || container.style.display === '') {
+                container.style.display = 'grid';
+                loadMonitoredIps();
+                chartInterval = setInterval(() => {
+                    updateCharts();
+                    loadMonitoredIps();
+                }, 2000);
+            } else {
+                container.style.display = 'none';
+                clearInterval(chartInterval);
+            }
+        }
+
+        async function updateCharts() {
+            for (const ip in charts) {
+                try {
+                    const res = await fetch(`/api/packet-stats?ip=${ip}`);
+                    const data = await res.json();
+                    const chart = charts[ip];
+                    
+                    if (data.labels && data.labels.length > 0) {
+                        chart.data.labels = data.labels;
+                        chart.data.datasets[0].data = data.sent;
+                        chart.data.datasets[1].data = data.received;
+                        chart.update();
+                    }
+                } catch (err) {
+                    console.error(`Failed to fetch stats for ${ip}:`, err);
+                }
+            }
+        }
+
+        async function startMonitoring() {
+            const ipInput = document.getElementById('newTargetIp');
+            const ip = ipInput.value.trim();
+            const status = document.getElementById('monitorStatus');
+            
+            if (!ip) return;
+            
+            status.textContent = "Starting monitor...";
+            try {
+                const res = await fetch('/api/start-monitor', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ip})
+                });
+                const data = await res.json();
+                if (data.status === 'success') {
+                    status.className = "mt-2 text-xs text-green-600";
+                    status.textContent = data.message;
+                    ipInput.value = "";
+                    setTimeout(() => { status.textContent = ""; }, 3000);
+                } else {
+                    status.className = "mt-2 text-xs text-red-600";
+                    status.textContent = "Error: " + data.message;
+                }
+            } catch (err) {
+                status.className = "mt-2 text-xs text-red-600";
+                status.textContent = "Connection error.";
             }
         }
 

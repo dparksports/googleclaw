@@ -60,6 +60,114 @@ def get_client():
 @app.route('/')
 def index(): return render_template('index.html')
 
+@app.route('/api/packet-stats')
+def packet_stats():
+    ip = request.args.get('ip', '52.110.4.23')
+    csv_file = f'packet_stats_{ip.replace(".", "_")}.csv'
+    
+    if not os.path.exists(csv_file):
+        return jsonify({"labels": [], "sent": [], "received": []})
+    
+    import csv
+    with open(csv_file, 'r') as f:
+        reader = csv.reader(f)
+        lines = list(reader)
+        
+    if len(lines) <= 1:
+        return jsonify({"labels": [], "sent": [], "received": []})
+        
+    data_lines = lines[1:] # Skip header
+    data_lines = data_lines[-60:] # Last 60 points
+    
+    labels = []
+    sent = []
+    received = []
+    
+    for row in data_lines:
+        if len(row) >= 4:
+            # Timestamp, TargetIP, RxPackets, TxPackets, RxBytes, TxBytes for raw
+            # Timestamp, Target_IP, Packets_Sent, Packets_Received for scapy
+            labels.append(row[0].split(' ')[1]) # Just the time
+            
+            # Handle both CSV formats
+            if len(row) == 6: 
+                # monitor_packets_raw.py format
+                sent.append(int(row[3]))
+                received.append(int(row[2]))
+            else:
+                # monitor_packets.py format
+                sent.append(int(row[2]))
+                received.append(int(row[3]))
+                
+    return jsonify({
+        "labels": labels,
+        "sent": sent,
+        "received": received
+    })
+
+import glob
+
+@app.route('/api/monitored-ips')
+def monitored_ips():
+    files = glob.glob('packet_stats_*.csv')
+    ips = []
+    for f in files:
+        base = f.replace('packet_stats_', '').replace('.csv', '')
+        ip = base.replace('_', '.')
+        ips.append(ip)
+    return jsonify({"ips": list(set(ips))})
+
+@app.route('/api/start-monitor', methods=['POST'])
+def start_monitor():
+    target = request.json.get('ip', '').strip()
+    if not target:
+        return jsonify({"status": "error", "message": "No IP or Process Name provided"}), 400
+    
+    # 1. Check for Admin Privileges (Required for raw sockets)
+    is_admin = False
+    try:
+        import ctypes
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except:
+        pass
+    
+    if not is_admin:
+        return jsonify({
+            "status": "error", 
+            "message": "Administrator privileges required. Please restart the Web Server as Administrator."
+        }), 403
+
+    # 2. Resolve Process Name to IPs if needed
+    ips_to_monitor = []
+    if any(c.isalpha() for c in target): # Likely a process name
+        try:
+            ps_cmd = f"Get-NetTCPConnection -OwningProcess (Get-Process {target}).Id | Where-Object {{ $_.RemoteAddress -notmatch '0.0.0.0|127.0.0.1' }} | Select-Object -ExpandProperty RemoteAddress"
+            res = subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, text=True)
+            ips = list(set([line.strip() for line in res.stdout.splitlines() if line.strip()]))
+            if not ips:
+                return jsonify({"status": "error", "message": f"No active connections found for process '{target}'"}), 404
+            ips_to_monitor = ips
+        except Exception as e:
+            return jsonify({"status": "error", "message": f"Could not find process '{target}': {str(e)}"}), 404
+    else:
+        ips_to_monitor = [target]
+
+    # 3. Start Monitoring for each IP
+    started = []
+    try:
+        for ip in ips_to_monitor:
+            cmd = [sys.executable, 'monitor_packets_raw.py', ip]
+            # Use CREATE_NO_WINDOW to keep it clean, but Popen will run it
+            subprocess.Popen(cmd, creationflags=subprocess.CREATE_NO_WINDOW if platform.system() == 'Windows' else 0)
+            started.append(ip)
+        
+        return jsonify({
+            "status": "success", 
+            "message": f"Started monitoring: {', '.join(started)}"
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
 @app.route('/models', methods=['GET'])
 def get_models():
     client = get_client()

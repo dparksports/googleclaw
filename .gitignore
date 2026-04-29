@@ -152,6 +152,9 @@ cython_debug/
 # Project specific data and reports
 *.csv
 *.txt
+*.etl
+Sysmon.zip
+Sysmon/
 !requirements.txt
 !README.md
 !all_mp4_scanned.txt
