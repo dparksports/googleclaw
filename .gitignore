@@ -161,7 +161,16 @@ Sysmon/
 !duplicate_mp4_files.txt
 !test.txt
 processed_chats/
-config.json
+assistant_config.json
+*.log
+*.tmp
+*.bak
+*.old
+*.swp
+*.db
+*.sqlite
+*.sqlite-journal
+*.log
 
 # OS files
 .DS_Store

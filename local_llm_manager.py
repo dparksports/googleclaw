@@ -224,6 +224,19 @@ def setup_interactive():
         
     print("\n\033[92m[Setup Complete]\033[0m Config saved! Your assistant will now use this model.")
 
+def get_vram_gb():
+    """Returns total GPU VRAM in GB using nvidia-smi, or None if unavailable."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, check=True
+        )
+        # Handle multiple GPUs by taking the first one
+        vram_mb = int(result.stdout.strip().split('\n')[0])
+        return vram_mb / 1024.0
+    except Exception:
+        return None
+
 def start_server():
     if not os.path.exists(CONFIG_FILE):
         print("Config not found. Run setup first.")
@@ -235,6 +248,39 @@ def start_server():
     engine = config.get("engine", "llama.cpp")
     model = config.get("model")
     
+    # --- Check if already running ---
+    try:
+        res = requests.get("http://localhost:8000/v1/models", timeout=1)
+        if res.status_code == 200:
+            print("\n\033[93m[System]\033[0m The AI Engine is already running in the background.")
+            print("What would you like to do?")
+            print("  1. Keep it running (Recommended - Fast startup)")
+            print("  2. Restart it (Apply new model, hardware, or context settings)")
+            print("  3. Stop it completely")
+            
+            action = input("\nSelect option (1-3) [default 1]: ").strip()
+            
+            if action == "2":
+                print("\n\033[94m[System]\033[0m Stopping existing server...")
+                if os.name == 'nt':
+                    subprocess.run(["taskkill", "/F", "/IM", "llama-server.exe"], capture_output=True)
+                else:
+                    subprocess.run(["pkill", "-f", "llama-server"], capture_output=True)
+                time.sleep(2)
+            elif action == "3":
+                print("\n\033[94m[System]\033[0m Stopping existing server...")
+                if os.name == 'nt':
+                    subprocess.run(["taskkill", "/F", "/IM", "llama-server.exe"], capture_output=True)
+                else:
+                    subprocess.run(["pkill", "-f", "llama-server"], capture_output=True)
+                print("\033[92m[System]\033[0m Server stopped.")
+                return None
+            else:
+                print("\n\033[92m[System]\033[0m Existing server kept alive.")
+                return None
+    except requests.exceptions.RequestException:
+        pass
+        
     print(f"\n\033[94m[Server]\033[0m Starting AI Engine...")
     
     if engine == "vllm":
@@ -259,9 +305,53 @@ def start_server():
         else:
             print("\033[92m[Note]\033[0m Full GPU mode enabled. Using maximum VRAM.")
 
+        # --- Context Window Calculation ---
+        ctx_size = "8192" # Default
+        
+        print("\n\033[95m[Context Window]\033[0m")
+        print("How much memory should we dedicate to your context window (memory for reading files/chatting)?")
+        print("  1. Default (8,192 tokens) - Fast and safe for most tasks.")
+        print("  2. Maximum - Automatically calculate the absolute limit for your GPU.")
+        
+        ctx_choice = input("\nSelect option (1-2) [default 1]: ").strip()
+        
+        if ctx_choice == "2":
+            vram_gb = get_vram_gb()
+            if vram_gb is None or ngl == "0":
+                print("\033[93m[Warning]\033[0m Could not detect GPU VRAM or GPU offloading is disabled. Falling back to default.")
+            else:
+                try:
+                    # Estimate model size based on file size
+                    model_size_gb = os.path.getsize(model) / (1024**3)
+                    
+                    # Leave 2GB for OS/Display overhead
+                    available_vram_gb = vram_gb - model_size_gb - 2.0 
+                    
+                    if available_vram_gb <= 0:
+                        print(f"\033[93m[Warning]\033[0m Model size ({model_size_gb:.1f}GB) exceeds safe VRAM buffer. Using default context.")
+                    else:
+                        # Rough heuristic: 1GB VRAM ≈ 12,000 tokens for quantized models
+                        calculated_tokens = int(available_vram_gb * 12000)
+                        
+                        # Cap at 128k to prevent extreme slowdowns
+                        calculated_tokens = min(calculated_tokens, 128000)
+                        
+                        # Round down to nearest 1024
+                        calculated_tokens = (calculated_tokens // 1024) * 1024
+                        
+                        if calculated_tokens > 8192:
+                            ctx_size = str(calculated_tokens)
+                            print(f"\033[92m[System]\033[0m Detected {vram_gb:.1f}GB VRAM. Model requires ~{model_size_gb:.1f}GB.")
+                            print(f"\033[92m[System]\033[0m Allocating remaining {available_vram_gb:.1f}GB to Context Window...")
+                            print(f"\033[92m[System]\033[0m Setting Max Context Size to: {ctx_size} tokens!")
+                        else:
+                             print("\033[93m[Warning]\033[0m Not enough VRAM for larger context. Using default.")
+                except Exception as e:
+                    print(f"\033[91m[Error]\033[0m Failed to calculate max context ({e}). Using default.")
+        
         # Ensure we use the exact path to the executable in the current directory
         llama_exe = os.path.join(os.getcwd(), "llama-server.exe")
-        cmd = [llama_exe, "-m", model, "--port", "8000", "--ctx-size", "8192", "-ngl", ngl]
+        cmd = [llama_exe, "-m", model, "--port", "8000", "--ctx-size", ctx_size, "-ngl", ngl]
         
     try:
         process = subprocess.Popen(cmd)
@@ -280,6 +370,49 @@ def start_server():
         print(f"Failed to start server: {e}")
         return None
 
+def check_server_status():
+    print("\n\033[96m" + "="*40)
+    print("🔍 Local AI Diagnostic Check")
+    print("="*40 + "\033[0m")
+    try:
+        res = requests.get("http://localhost:8000/slots", timeout=2)
+        if res.status_code == 200:
+            slots = res.json()
+            active = [s for s in slots if str(s.get('state', '0')) not in ['0', 'idle', '0.0']]
+            if active:
+                print("\n\033[93m[Server] BUSY\033[0m - Processing a task.")
+                for s in active:
+                    decoded = s.get('n_decoded', 0)
+                    predict = s.get('n_predict', '?')
+                    print(f"  └─ Tokens Processed: {decoded} / {predict}")
+            else:
+                print("\n\033[92m[Server] IDLE\033[0m - Waiting for your next Wish.")
+        else:
+            print("\n\033[93m[Server] Online\033[0m (but /slots endpoint unavailable)")
+    except Exception:
+        print("\n\033[91m[Server] OFFLINE\033[0m - The AI engine is not running.")
+
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,memory.used,memory.total", "--format=csv,noheader"],
+            capture_output=True, text=True, check=True
+        )
+        stats = result.stdout.strip().split(', ')
+        util = int(stats[0].replace('%', '').strip())
+        print(f"\n\033[94m[Hardware]\033[0m GPU Load: {stats[0]} | VRAM: {stats[1]} / {stats[2]}")
+        
+        if util > 80:
+            print("\033[92m[Diagnosis] Your GPU is working hard! The AI is definitely crunching data.\033[0m")
+        elif util > 5:
+            print("\033[93m[Diagnosis] GPU is doing light work. It is likely evaluating a large prompt.\033[0m")
+        else:
+            print("\033[90m[Diagnosis] GPU is idle.\033[0m")
+    except Exception:
+        pass
+        
+    print("\nPress Enter to close...")
+    input()
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         if sys.argv[1] == "start":
@@ -287,6 +420,8 @@ if __name__ == "__main__":
             if p:
                 try: p.wait()
                 except KeyboardInterrupt: p.terminate()
+        elif sys.argv[1] == "status":
+            check_server_status()
         elif sys.argv[1] == "wait":
             print("Waiting for local AI server to load into memory...", end="", flush=True)
             for _ in range(300): # Give it up to 10 minutes to load massive 31B models

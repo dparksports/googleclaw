@@ -1,6 +1,9 @@
 google-genai
-Pillow
-Flask
-platformdirs
 python-dotenv
 watchdog
+requests
+huggingface-hub
+torch
+torchvision
+torchaudio
+huggingface_hub
